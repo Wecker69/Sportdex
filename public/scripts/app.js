@@ -12,10 +12,7 @@ const state = {
   achievements: new Map(),
   activeView: "dex",
   filters: {
-    search: "",
-    category: "alle",
-    generation: "alle",
-    dsaOnly: false
+    search: ""
   }
 };
 
@@ -28,10 +25,6 @@ const els = {
   dexState: document.querySelector("#dex-state"),
   resultCount: document.querySelector("#result-count"),
   search: document.querySelector("#search-input"),
-  category: document.querySelector("#category-filter"),
-  generation: document.querySelector("#generation-filter"),
-  dsa: document.querySelector("#dsa-filter"),
-  reset: document.querySelector("#reset-filter"),
   authTabs: document.querySelectorAll("[data-auth-tab]"),
   panes: document.querySelectorAll(".auth-pane"),
   profileState: document.querySelector("#profile-state"),
@@ -49,17 +42,17 @@ const els = {
 };
 
 const categoryColors = {
-  Basketball: "#f4c84f",
-  Koordination: "#32d3c7",
-  Fussball: "#79df72",
-  Schwimmen: "#58a6ff",
-  Laufen: "#ff7a59",
-  Fahrrad: "#c792ea",
-  Kraft: "#ff5a58",
-  Volleyball: "#f7a8d8",
-  Leichtathletik: "#d4f45f",
-  Tempo: "#ffffff",
-  Ausdauer: "#9fb1c8"
+  Basketball: "var(--color-category-basketball)",
+  Koordination: "var(--color-category-koordination)",
+  Fussball: "var(--color-category-fussball)",
+  Schwimmen: "var(--color-category-schwimmen)",
+  Laufen: "var(--color-category-laufen)",
+  Fahrrad: "var(--color-category-fahrrad)",
+  Kraft: "var(--color-category-kraft)",
+  Volleyball: "var(--color-category-volleyball)",
+  Leichtathletik: "var(--color-category-leichtathletik)",
+  Tempo: "var(--color-category-tempo)",
+  Ausdauer: "var(--color-category-ausdauer)"
 };
 
 init();
@@ -72,7 +65,6 @@ async function init() {
   await loadDisciplines();
   await loadProfileAndStats();
   finishAuthRestore();
-  renderFilters();
   renderDex();
   renderProfile();
 }
@@ -84,26 +76,6 @@ function bindUi() {
 
   els.search.addEventListener("input", () => {
     state.filters.search = els.search.value.trim().toLowerCase();
-    renderDex();
-  });
-  els.category.addEventListener("change", () => {
-    state.filters.category = els.category.value;
-    renderDex();
-  });
-  els.generation.addEventListener("change", () => {
-    state.filters.generation = els.generation.value;
-    renderDex();
-  });
-  els.dsa.addEventListener("change", () => {
-    state.filters.dsaOnly = els.dsa.checked;
-    renderDex();
-  });
-  els.reset.addEventListener("click", () => {
-    state.filters = { search: "", category: "alle", generation: "alle", dsaOnly: false };
-    els.search.value = "";
-    els.category.value = "alle";
-    els.generation.value = "alle";
-    els.dsa.checked = false;
     renderDex();
   });
 
@@ -240,19 +212,6 @@ async function loadProfileAndStats() {
   });
 }
 
-function renderFilters() {
-  const categories = new Set();
-  const generations = new Set();
-  state.disciplines.forEach((discipline) => {
-    categories.add(discipline.kategorie_1);
-    if (discipline.kategorie_2) categories.add(discipline.kategorie_2);
-    generations.add(String(discipline.generation));
-  });
-
-  els.category.innerHTML = option("alle", "Alle Kategorien") + [...categories].sort().map((item) => option(item, item)).join("");
-  els.generation.innerHTML = option("alle", "Alle") + [...generations].sort((a, b) => Number(a) - Number(b)).map((item) => option(item, `Generation ${item}`)).join("");
-}
-
 function renderDex() {
   const filtered = state.disciplines.filter(matchesFilters);
   els.resultCount.textContent = `${filtered.length} von ${state.disciplines.length}`;
@@ -276,44 +235,40 @@ function renderDex() {
 
 function matchesFilters(discipline) {
   const query = state.filters.search;
-  const inName = !query || discipline.name.toLowerCase().includes(query);
-  const inCategory = state.filters.category === "alle" || discipline.kategorie_1 === state.filters.category || discipline.kategorie_2 === state.filters.category;
-  const inGeneration = state.filters.generation === "alle" || String(discipline.generation) === state.filters.generation;
-  const inDsa = !state.filters.dsaOnly || discipline.dsa;
-  return inName && inCategory && inGeneration && inDsa;
+  return !query || discipline.name.toLowerCase().includes(query);
 }
 
 function renderDisciplineCard(discipline) {
   const article = document.createElement("article");
   article.className = "discipline-card";
-  article.style.setProperty("--category-color", categoryColors[discipline.kategorie_1] ?? "#32d3c7");
+  article.style.setProperty("--category-color", categoryColors[discipline.kategorie_1] ?? "var(--color-primary)");
   const medal = state.achievements.get(discipline.id) ?? "offen";
+  const icons = [
+    renderSportIcon(discipline.kategorie_1),
+    discipline.kategorie_2 ? renderSportIcon(discipline.kategorie_2) : ""
+  ].join("");
+  const dsaLabel = discipline.dsa ? '<span class="dsa-badge">DSA</span>' : "";
   article.innerHTML = `
     <div class="card-head">
       <div>
         <div class="dex-no">#${String(discipline.sortierung).padStart(3, "0")}</div>
         <h3>${escapeHtml(discipline.name)}</h3>
       </div>
-      <div class="sport-icon" aria-hidden="true">${iconFor(discipline.kategorie_1)}</div>
-    </div>
-    <div class="chip-row">
-      <span class="chip">${escapeHtml(discipline.kategorie_1)}</span>
-      ${discipline.kategorie_2 ? `<span class="chip">${escapeHtml(discipline.kategorie_2)}</span>` : ""}
-      <span class="chip">Gen ${discipline.generation}</span>
-      ${discipline.dsa ? `<span class="chip dsa">DSA</span>` : ""}
-    </div>
-    <div class="detail-row">
-      <span>${escapeHtml(discipline.einheit)}</span>
-      <span>${discipline.bewertungsrichtung === "hoeher" ? "hoeher ist besser" : "niedriger ist besser"}</span>
+      <div class="icon-row" aria-label="Kategoriezeichen">${icons}</div>
     </div>
     <div class="medal-row" aria-label="Medaillenplaetze">
       <span class="medal bronze">Bronze</span>
       <span class="medal silver">Silber</span>
       <span class="medal gold">Gold</span>
     </div>
-    <div class="status">Status: ${medalLabel(medal)}</div>
+    <div class="status-row"><span class="status">Status: ${medalLabel(medal)}</span>${dsaLabel}</div>
   `;
   return article;
+}
+
+function renderSportIcon(category) {
+  const color = categoryColors[category] ?? "var(--color-primary)";
+  return `<span class="sport-icon" style="--icon-color: ${color}" title="${escapeHtml(category)}" aria-label="${escapeHtml(category)}">${iconFor(category)}</span>`;
 }
 
 function renderProfile() {
@@ -334,7 +289,7 @@ function renderProfile() {
   }
 
   if (profile) {
-    els.profileTitle.textContent = profile.nutzername;
+    els.profileTitle.textContent = `@${profile.nutzername}`;
     els.profileRank.textContent = `Rank ${profile.rank ?? 1}`;
     els.profileAvatar.textContent = initials(profile);
     fillEditForm(profile);
@@ -441,7 +396,6 @@ function showView(viewName) {
   state.activeView = viewName;
   els.views.forEach((view) => view.classList.toggle("is-active", view.id === `view-${viewName}`));
   els.nav.forEach((button) => button.classList.toggle("is-active", button.dataset.view === viewName));
-  els.title.textContent = viewName === "dex" ? "Dex" : viewName === "feed" ? "Feed" : "Profil";
   document.querySelector("#app").focus({ preventScroll: true });
 }
 
@@ -480,10 +434,6 @@ function hideState(element) {
   element.className = "state-box";
 }
 
-function option(value, label) {
-  return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-}
-
 function bestMedal(a = "keine", b = "keine") {
   const rank = { offen: 0, keine: 1, unbewertet: 1, bronze: 2, silber: 3, gold: 4 };
   return rank[b] > rank[a] ? b : a;
@@ -517,11 +467,16 @@ function escapeHtml(value) {
 function iconFor(category) {
   const icons = {
     Basketball: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.7 6.2a8 8 0 0 1 1 3.8h-3.5a15 15 0 0 0-.7-4.3 8 8 0 0 1 3.2.5Zm-5.1-3.9c.8 1.2 1.4 2.8 1.7 4.5A8.8 8.8 0 0 1 9 15.1a16.7 16.7 0 0 1-1.3-5.8 8.8 8.8 0 0 1 5.9-5Zm-3.3-.1a10.8 10.8 0 0 0-4.6 3.4 7.9 7.9 0 0 1-1.8-.9 8 8 0 0 1 6.4-2.5ZM3.1 8.5c.5.3 1.3.7 2.5 1 .1 2.1.6 4.2 1.4 6.1a9 9 0 0 1-2.3.1A8 8 0 0 1 3 12c0-1.2.3-2.4.8-3.5Zm3 9.2c.6-.1 1.2-.3 1.8-.5.7 1.2 1.5 2.2 2.5 2.8a8 8 0 0 1-4.3-2.3Zm7 2.1a7 7 0 0 1-3.4-3.2 10.8 10.8 0 0 0 5.8-5.2c0 .2 0 .4 0 .6a15 15 0 0 1-2.4 7.8Zm2.5-1.1a17 17 0 0 0 1.9-4.7h2a8 8 0 0 1-3.9 4.7Z"/></svg>',
+    Koordination: '<svg viewBox="0 0 24 24"><path d="M11 2h2v4h-2V2Zm0 16h2v4h-2v-4ZM2 11h4v2H2v-2Zm16 0h4v2h-4v-2ZM5.6 4.2l2.8 2.8L7 8.4 4.2 5.6l1.4-1.4Zm10 10 2.8 2.8-1.4 1.4-2.8-2.8 1.4-1.4Zm2.8-8.6-2.8 2.8L14.2 7 17 4.2l1.4 1.4ZM8.4 15.6l-2.8 2.8-1.4-1.4 2.8-2.8 1.4 1.4ZM12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>',
+    Fussball: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm3.8 5.3-1 3.1-2.8.1-1.7-2.4 1.7-2.3 3.8 1.5ZM8.2 7.3l1.7 2.4-.9 2.7-3 .9-1.7-3.3 3.9-2.7Zm-.4 9.6-2.4-1.8.2-3.3 3.1-.9 2.2 1.7v3.1l-3.1 1.2Zm7.8 1.1-3.6 1.1-2.7-2 2.8-1.1 2.8 1.1.7.9Zm3.3-4.4-2.7 2.1-3.3-1.3v-2.6l2.9-.1 2.6 1.9Z"/></svg>',
     Schwimmen: '<svg viewBox="0 0 24 24"><path d="M7.2 8.6a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Zm12.6 7.8c-1.7 0-2.6-1-4-1s-2.3 1-4 1-2.6-1-4-1-2.3 1-4 1v2c1.7 0 2.6-1 4-1s2.3 1 4 1 2.6-1 4-1 2.3 1 4 1v-2ZM3.8 13.7c1.7 0 2.6-1 4-1 .8 0 1.4.3 2 .6l2.6-3.4 2.7 2.1H20v-2.2h-4.1l-4.5-3.4-4.5 5.9a6.4 6.4 0 0 0-3.1-.7v2.1Z"/></svg>',
     Laufen: '<svg viewBox="0 0 24 24"><path d="M15.5 5.7a2.1 2.1 0 1 0 0-4.2 2.1 2.1 0 0 0 0 4.2ZM10 21l2.1-5.7 2.2 2.1V23h2.4v-6.5l-3.1-3 .9-3a8 8 0 0 0 3.8 2.1l.6-2.3a5 5 0 0 1-3.8-2.8l-.5-.9a2.3 2.3 0 0 0-3.5-.6L7.8 8.8v5h2.3v-4l1.4-1.2-1.5 5L7.4 21H10Z"/></svg>',
     Fahrrad: '<svg viewBox="0 0 24 24"><path d="M6.5 20a4.5 4.5 0 1 1 3.9-6.8l1.2-2.2H9V8.8h4l1-1.8h-2V5h4.4l-1.7 3.2 2.2 5A4.5 4.5 0 1 1 15 14.3l-1.1-2.5-1.8 3.4h-1.3A4.5 4.5 0 0 1 6.5 20Zm0-2.2a2.3 2.3 0 0 0 2-3.5l-2 3.5Zm10.9 0a2.3 2.3 0 1 0 .4-2.3l1 2.3h-1.4Z"/></svg>',
     Kraft: '<svg viewBox="0 0 24 24"><path d="M3 10h3V7h2v10H6v-3H3v-4Zm18 4h-3v3h-2V7h2v3h3v4ZM9 11h6v2H9v-2Z"/></svg>',
-    Volleyball: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM6.1 7.2A8 8 0 0 1 12 4c.2 0 .4 0 .6.1A10.2 10.2 0 0 0 8.7 11a11 11 0 0 1-2.6-3.8Zm-1.9 5.4c.9.3 2 .5 3.2.4.2 2.2 1 4.1 2.2 5.8a8 8 0 0 1-5.4-6.2Zm8.2 7.3a9.1 9.1 0 0 1-2.9-7.3 11 11 0 0 0 6.4-3.9c.7 1 1.2 2.1 1.5 3.4a8.8 8.8 0 0 1-5 7.8Zm6.9-5.2a12.6 12.6 0 0 0-4.9-9.8 8 8 0 0 1 4.9 9.8Z"/></svg>'
+    Volleyball: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM6.1 7.2A8 8 0 0 1 12 4c.2 0 .4 0 .6.1A10.2 10.2 0 0 0 8.7 11a11 11 0 0 1-2.6-3.8Zm-1.9 5.4c.9.3 2 .5 3.2.4.2 2.2 1 4.1 2.2 5.8a8 8 0 0 1-5.4-6.2Zm8.2 7.3a9.1 9.1 0 0 1-2.9-7.3 11 11 0 0 0 6.4-3.9c.7 1 1.2 2.1 1.5 3.4a8.8 8.8 0 0 1-5 7.8Zm6.9-5.2a12.6 12.6 0 0 0-4.9-9.8 8 8 0 0 1 4.9 9.8Z"/></svg>',
+    Leichtathletik: '<svg viewBox="0 0 24 24"><path d="M4 19h16v2H4v-2Zm2-3.5 4-7 3 2.1 4.7-6.6 1.6 1.2-5.9 8.3-2.8-2-2.9 5H6Zm1-10h4v2H7v-2Z"/></svg>',
+    Tempo: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 11-14h-6l-1-6Z"/></svg>',
+    Ausdauer: '<svg viewBox="0 0 24 24"><path d="M7.2 8C4.3 8 2 10 2 12.5S4.3 17 7.2 17c1.7 0 3.3-.8 4.8-2.4C13.5 16.2 15.1 17 16.8 17c2.9 0 5.2-2 5.2-4.5S19.7 8 16.8 8c-1.7 0-3.3.8-4.8 2.4C10.5 8.8 8.9 8 7.2 8Zm0 2c1 0 2 .5 3.3 2.5C9.2 14.5 8.2 15 7.2 15 5.4 15 4 13.9 4 12.5S5.4 10 7.2 10Zm9.6 0c1.8 0 3.2 1.1 3.2 2.5S18.6 15 16.8 15c-1 0-2-.5-3.3-2.5C14.8 10.5 15.8 10 16.8 10Z"/></svg>'
   };
   return icons[category] ?? '<svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6l-8-4Zm0 4 4 2v4c0 2.8-1.6 5-4 6-2.4-1-4-3.2-4-6V8l4-2Z"/></svg>';
 }

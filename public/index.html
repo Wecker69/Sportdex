@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#101820">
     <title>Sportdex</title>
+    <link rel="stylesheet" href="./styles/colors.css">
     <link rel="stylesheet" href="./styles/main.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   </head>
@@ -12,8 +12,7 @@
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Sportdex</p>
-          <h1 id="view-title">Dex</h1>
+          <h1 id="view-title" class="brand-title"><span>Sport</span><span>Dex</span></h1>
         </div>
         <div class="sync-pill" id="connection-state">Demo-Modus</div>
       </header>
@@ -22,38 +21,14 @@
         <section class="view is-active" id="view-dex" aria-labelledby="dex-title">
           <div class="dex-hero">
             <div>
-              <p class="eyebrow">Generation 1</p>
-              <h2 id="dex-title">Sportliche Faehigkeiten sammeln</h2>
-              <p>36 Disziplinen mit Kategorien, Medaillenplaetzen und DSA-Markierung.</p>
-            </div>
-            <div class="scanner" aria-hidden="true">
-              <span></span><span></span><span></span>
+              <h2 id="dex-title">Medailien</h2>
+              <p>36 Disziplinen in 12 Kategorien</p>
+              <form class="dex-search" id="dex-filter" autocomplete="off">
+                <label class="sr-only" for="search-input">Suche</label>
+                <input id="search-input" type="search" placeholder="Disziplin suchen">
+              </form>
             </div>
           </div>
-
-          <form class="filter-panel" id="dex-filter" autocomplete="off">
-            <label>
-              Suche
-              <input id="search-input" type="search" placeholder="Disziplin suchen">
-            </label>
-            <div class="filter-grid">
-              <label>
-                Kategorie
-                <select id="category-filter"></select>
-              </label>
-              <label>
-                Generation
-                <select id="generation-filter"></select>
-              </label>
-            </div>
-            <div class="filter-actions">
-              <label class="toggle-row">
-                <input id="dsa-filter" type="checkbox">
-                <span>Nur DSA</span>
-              </label>
-              <button class="ghost-button" id="reset-filter" type="button">Zuruecksetzen</button>
-            </div>
-          </form>
 
           <div class="result-row">
             <strong id="result-count">0 von 0</strong>
@@ -67,10 +42,18 @@
           <div class="empty-panel">
             <div class="empty-icon" aria-hidden="true">SD</div>
             <h2 id="feed-title">Feed kommt spaeter</h2>
-            <p>Hier werden kuenftig bewusst geteilte Leistungen erscheinen. Aktuell werden keine Aktivitaeten erfunden oder als echte Nutzerdaten angezeigt.</p>
+            <p>Hier werden kuenftig geteilte Leistungen erscheinen</p>
           </div>
           <div class="feed-skeleton" aria-hidden="true">
-            <div></div><div></div><div></div>
+            <div>
+              <span></span><span></span><span></span>
+            </div>
+            <div>
+              <span></span><span></span><span></span>
+            </div>
+            <div>
+              <span></span><span></span><span></span>
+            </div>
           </div>
         </section>
 

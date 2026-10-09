@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  --color-bg: #141416;
+  --color-card: #242427;
+  --color-primary: #991B1B;
+  --color-action: #313134;
+  --color-connected: #3B7F52;
+  --color-text: #f5f7fb;
+  --color-muted: #DBEAFF;
+  --color-line: rgba(255, 255, 255, 0.12);
+  --color-input: #242427;
+  --color-error: #ff5a58;
+  --color-error-soft: #ffd8d7;
+  --color-success-soft: #c8fffb;
+  --color-soft-panel: rgba(255, 255, 255, 0.06);
+  --color-soft-panel-strong: rgba(255, 255, 255, 0.1);
+  --color-primary-soft: rgba(153, 27, 27, 0.18);
+  --color-primary-line: rgba(153, 27, 27, 0.55);
+  --color-error-line: rgba(255, 90, 88, 0.45);
+  --color-shadow: rgba(0, 0, 0, 0.24);
+
+  --color-bronze: #c4824a;
+  --color-silver: #c9d2df;
+  --color-gold: #f4c84f;
+
+  --color-category-basketball: #d79b45;
+  --color-category-koordination: #6f8f8a;
+  --color-category-fussball: #6f8b5f;
+  --color-category-schwimmen: #587ea8;
+  --color-category-laufen: #b65f4c;
+  --color-category-fahrrad: #81709e;
+  --color-category-kraft: #991B1B;
+  --color-category-volleyball: #a96f8f;
+  --color-category-leichtathletik: #a69b56;
+  --color-category-tempo: #f5f7fb;
+  --color-category-ausdauer: #8f99a8;
+}
