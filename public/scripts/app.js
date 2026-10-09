@@ -4,6 +4,9 @@ const state = {
   supabase: null,
   connected: false,
   session: null,
+  authRestoring: true,
+  authSubscription: null,
+  profileLoadError: "",
   profile: null,
   disciplines: [],
   achievements: new Map(),
@@ -32,6 +35,7 @@ const els = {
   authTabs: document.querySelectorAll("[data-auth-tab]"),
   panes: document.querySelectorAll(".auth-pane"),
   profileState: document.querySelector("#profile-state"),
+  profileView: document.querySelector("#view-profile"),
   profileTitle: document.querySelector("#profile-title"),
   profileRank: document.querySelector("#profile-rank"),
   profileAvatar: document.querySelector("#profile-avatar"),
@@ -67,6 +71,7 @@ async function init() {
   await loadSession();
   await loadDisciplines();
   await loadProfileAndStats();
+  finishAuthRestore();
   renderFilters();
   renderDex();
   renderProfile();
@@ -113,6 +118,8 @@ function bindUi() {
 }
 
 async function initSupabase() {
+  if (state.supabase) return;
+
   try {
     const response = await fetch("./config.local.json", { cache: "no-store" });
     if (!response.ok) throw new Error("Keine lokale Supabase-Konfiguration");
@@ -120,25 +127,69 @@ async function initSupabase() {
     if (!config.supabaseUrl || !config.supabaseAnonKey || !window.supabase) {
       throw new Error("Supabase-Konfiguration unvollstaendig");
     }
-    state.supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+    state.supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
     state.connected = true;
     els.connection.textContent = "Supabase verbunden";
   } catch {
     state.connected = false;
+    state.authRestoring = false;
     els.connection.textContent = "Demo-Modus";
   }
 }
 
 async function loadSession() {
-  if (!state.connected) return;
-  const { data } = await state.supabase.auth.getSession();
-  state.session = data.session;
-  state.supabase.auth.onAuthStateChange(async (_event, session) => {
-    state.session = session;
-    await loadProfileAndStats();
+  if (!state.connected) {
+    return;
+  }
+
+  setProfileState("Anmeldung wird wiederhergestellt ...");
+  const { data, error } = await state.supabase.auth.getSession();
+  if (error) {
+    state.session = null;
+    setProfileState("Gespeicherte Anmeldung konnte nicht geprueft werden. Bitte Verbindung pruefen.", "error");
+  } else {
+    state.session = data.session;
+  }
+  bindAuthStateListener();
+}
+
+function bindAuthStateListener() {
+  if (state.authSubscription) return;
+
+  const { data } = state.supabase.auth.onAuthStateChange((event, session) => {
+    window.setTimeout(() => {
+      void handleAuthStateChange(event, session);
+    }, 0);
+  });
+
+  state.authSubscription = data.subscription;
+}
+
+async function handleAuthStateChange(event, session) {
+  state.session = session;
+  if (event === "SIGNED_OUT") {
+    clearPersonalState();
+    finishAuthRestore();
     renderDex();
     renderProfile();
-  });
+    showAuthPane("login");
+    return;
+  }
+  await loadProfileAndStats();
+  finishAuthRestore();
+  renderDex();
+  renderProfile();
+}
+
+function finishAuthRestore() {
+  state.authRestoring = false;
+  els.profileView.classList.remove("is-auth-restoring");
 }
 
 async function loadDisciplines() {
@@ -164,17 +215,25 @@ async function loadDisciplines() {
 }
 
 async function loadProfileAndStats() {
-  state.profile = null;
-  state.achievements = new Map();
-  if (!state.connected || !state.session?.user) return;
+  state.profileLoadError = "";
+  if (!state.connected || !state.session?.user) {
+    clearPersonalData();
+    return;
+  }
 
   const userId = state.session.user.id;
-  const [{ data: profile }, { data: efforts }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: efforts, error: effortsError }] = await Promise.all([
     state.supabase.from("nutzer").select("*").eq("id", userId).maybeSingle(),
     state.supabase.from("leistung").select("disziplin_id, medaille").eq("nutzer_id", userId)
   ]);
 
+  if (profileError || effortsError) {
+    state.profileLoadError = "Profildaten konnten gerade nicht geladen werden. Die Anmeldung bleibt erhalten.";
+    return;
+  }
+
   state.profile = profile ?? null;
+  state.achievements = new Map();
   (efforts ?? []).forEach((effort) => {
     const current = state.achievements.get(effort.disziplin_id);
     state.achievements.set(effort.disziplin_id, bestMedal(current, effort.medaille));
@@ -262,8 +321,14 @@ function renderProfile() {
   const isConnected = state.connected;
   const isSignedIn = Boolean(state.session?.user);
 
-  if (!isConnected) {
+  els.profileView.classList.toggle("is-auth-restoring", state.authRestoring);
+
+  if (state.authRestoring) {
+    setProfileState("Anmeldung wird wiederhergestellt ...");
+  } else if (!isConnected) {
     setProfileState("Demo-Modus: Registrierung, Anmeldung und Speichern sind deaktiviert, bis Supabase konfiguriert ist.");
+  } else if (state.profileLoadError) {
+    setProfileState(state.profileLoadError, "error");
   } else {
     hideState(els.profileState);
   }
@@ -284,6 +349,11 @@ function renderProfile() {
   els.statGold.textContent = String(medals.filter((medal) => medal === "gold").length);
   els.statTotal.textContent = String(medals.length);
 
+  if (state.authRestoring) {
+    return;
+  }
+
+  showAuthPane(isSignedIn ? "edit" : "login");
   els.loginForm.querySelector("button").disabled = !isConnected;
   els.registerForm.querySelector("button").disabled = !isConnected;
   els.editForm.querySelector("button").disabled = !isConnected || !isSignedIn;
@@ -348,11 +418,23 @@ async function handleProfileSave(event) {
 async function handleLogout() {
   if (!state.connected) return;
   await state.supabase.auth.signOut();
-  state.profile = null;
-  state.achievements = new Map();
+  clearPersonalState();
   renderProfile();
   renderDex();
   showAuthPane("login");
+}
+
+function clearPersonalState() {
+  state.session = null;
+  clearPersonalData();
+  els.loginForm.reset();
+  els.editForm.reset();
+}
+
+function clearPersonalData() {
+  state.profile = null;
+  state.profileLoadError = "";
+  state.achievements = new Map();
 }
 
 function showView(viewName) {

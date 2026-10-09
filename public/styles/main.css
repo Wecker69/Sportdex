@@ -483,6 +483,11 @@ button:disabled {
   margin-top: 14px;
 }
 
+.is-auth-restoring .auth-tabs,
+.is-auth-restoring .auth-pane {
+  display: none;
+}
+
 .tab-button {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.05);
