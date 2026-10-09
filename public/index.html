@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#101820">
+    <title>Sportdex</title>
+    <link rel="stylesheet" href="./styles/main.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Sportdex</p>
+          <h1 id="view-title">Dex</h1>
+        </div>
+        <div class="sync-pill" id="connection-state">Demo-Modus</div>
+      </header>
+
+      <main id="app" class="content" tabindex="-1">
+        <section class="view is-active" id="view-dex" aria-labelledby="dex-title">
+          <div class="dex-hero">
+            <div>
+              <p class="eyebrow">Generation 1</p>
+              <h2 id="dex-title">Sportliche Faehigkeiten sammeln</h2>
+              <p>36 Disziplinen mit Kategorien, Medaillenplaetzen und DSA-Markierung.</p>
+            </div>
+            <div class="scanner" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <form class="filter-panel" id="dex-filter" autocomplete="off">
+            <label>
+              Suche
+              <input id="search-input" type="search" placeholder="Disziplin suchen">
+            </label>
+            <div class="filter-grid">
+              <label>
+                Kategorie
+                <select id="category-filter"></select>
+              </label>
+              <label>
+                Generation
+                <select id="generation-filter"></select>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <label class="toggle-row">
+                <input id="dsa-filter" type="checkbox">
+                <span>Nur DSA</span>
+              </label>
+              <button class="ghost-button" id="reset-filter" type="button">Zuruecksetzen</button>
+            </div>
+          </form>
+
+          <div class="result-row">
+            <strong id="result-count">0 von 0</strong>
+            <span>Disziplinen sichtbar</span>
+          </div>
+          <div class="state-box" id="dex-state" hidden></div>
+          <div class="dex-grid" id="discipline-list" aria-live="polite"></div>
+        </section>
+
+        <section class="view" id="view-feed" aria-labelledby="feed-title">
+          <div class="empty-panel">
+            <div class="empty-icon" aria-hidden="true">SD</div>
+            <h2 id="feed-title">Feed kommt spaeter</h2>
+            <p>Hier werden kuenftig bewusst geteilte Leistungen erscheinen. Aktuell werden keine Aktivitaeten erfunden oder als echte Nutzerdaten angezeigt.</p>
+          </div>
+          <div class="feed-skeleton" aria-hidden="true">
+            <div></div><div></div><div></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-profile" aria-labelledby="profile-title">
+          <div class="profile-card" id="profile-summary">
+            <div class="avatar" id="profile-avatar">SD</div>
+            <div>
+              <p class="eyebrow">Profil</p>
+              <h2 id="profile-title">Nicht angemeldet</h2>
+              <p id="profile-rank">Rank 1</p>
+            </div>
+          </div>
+
+          <div class="stats-row">
+            <div><strong id="stat-done">0</strong><span>Disziplinen</span></div>
+            <div><strong id="stat-gold">0</strong><span>Gold</span></div>
+            <div><strong id="stat-total">0</strong><span>Versuche</span></div>
+          </div>
+
+          <div class="auth-tabs" role="tablist" aria-label="Profilaktionen">
+            <button class="tab-button is-active" type="button" data-auth-tab="login">Anmelden</button>
+            <button class="tab-button" type="button" data-auth-tab="register">Registrieren</button>
+            <button class="tab-button" type="button" data-auth-tab="edit">Bearbeiten</button>
+          </div>
+
+          <div class="state-box" id="profile-state" hidden></div>
+
+          <form class="form-stack auth-pane is-active" id="login-form">
+            <label>E-Mail<input name="email" type="email" required autocomplete="email"></label>
+            <label>Passwort<input name="password" type="password" required autocomplete="current-password"></label>
+            <button type="submit">Anmelden</button>
+          </form>
+
+          <form class="form-stack auth-pane" id="register-form">
+            <label>E-Mail<input name="email" type="email" required autocomplete="email"></label>
+            <label>Passwort<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+            <label>Nutzername<input name="nutzername" type="text" required pattern="[a-z0-9_]{3,24}" placeholder="kleinschreibung"></label>
+            <label>Wertungsklasse
+              <select name="wertungsklasse" required>
+                <option value="m">m</option>
+                <option value="w">w</option>
+              </select>
+            </label>
+            <button type="submit">Registrieren</button>
+          </form>
+
+          <form class="form-stack auth-pane" id="edit-form">
+            <label>Nutzername<input name="nutzername" type="text" required pattern="[a-z0-9_]{3,24}"></label>
+            <label>Wertungsklasse
+              <select name="wertungsklasse" required>
+                <option value="m">m</option>
+                <option value="w">w</option>
+              </select>
+            </label>
+            <label>Vorname<input name="vorname" type="text" autocomplete="given-name"></label>
+            <label>Nachname<input name="nachname" type="text" autocomplete="family-name"></label>
+            <label>Geburtsdatum<input name="geburtsdatum" type="date"></label>
+            <label>Beschreibung<textarea name="beschreibung" rows="3" maxlength="240"></textarea></label>
+            <button type="submit">Profil speichern</button>
+            <button class="ghost-button" type="button" id="logout-button">Abmelden</button>
+          </form>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Hauptnavigation">
+        <button type="button" data-view="feed">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v3H4zM4 11h11v3H4zM4 17h16v3H4z"/></svg>
+          <span>Feed</span>
+        </button>
+        <button class="is-active" type="button" data-view="dex">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+          <span>Dex</span>
+        </button>
+        <button type="button" data-view="profile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0z"/></svg>
+          <span>Profil</span>
+        </button>
+      </nav>
+    </div>
+    <script type="module" src="./scripts/app.js"></script>
+  </body>
+</html>
