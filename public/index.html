@@ -71,22 +71,16 @@
         </section>
 
         <section class="view" id="view-connect" aria-labelledby="connect-title">
-          <div class="empty-panel">
-            <div class="empty-icon" aria-hidden="true">SD</div>
-            <h2 id="connect-title">Connect kommt spaeter</h2>
-            <p>Hier entsteht spaeter ein Bereich fuer Gruppen, Challenges und gemeinsame Ziele.</p>
+          <div class="connect-panel">
+            <h2 id="connect-title">Follower</h2>
           </div>
-          <div class="feed-skeleton" aria-hidden="true">
-            <div>
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <span></span><span></span><span></span>
-            </div>
+          <div class="connect-tabs" role="tablist" aria-label="Connect-Menue">
+            <button class="tab-button is-active" type="button" data-connect-tab="all">Alle</button>
+            <button class="tab-button" type="button" data-connect-tab="followers">Follower</button>
+            <button class="tab-button" type="button" data-connect-tab="following">Gefolgt</button>
           </div>
+          <div class="state-box" id="connect-state" hidden></div>
+          <div class="request-list" id="request-list" aria-live="polite"></div>
         </section>
 
         <section class="view is-auth-restoring" id="view-profile" aria-labelledby="profile-title">
@@ -150,6 +144,7 @@
             <label>Beschreibung<textarea name="beschreibung" rows="3" maxlength="240"></textarea></label>
             <button type="submit">Profil speichern</button>
             <button class="ghost-button" type="button" id="logout-button">Abmelden</button>
+            <button class="danger-outline-button" type="button" id="delete-profile-button">Profil loeschen</button>
           </form>
         </section>
       </main>
@@ -169,6 +164,7 @@
         </button>
         <button type="button" data-view="connect">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+          <strong class="nav-badge" id="connect-badge" hidden>0</strong>
           <span>Connect</span>
         </button>
         <button type="button" data-view="profile">

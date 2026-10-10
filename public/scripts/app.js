@@ -10,6 +10,18 @@ const state = {
   profile: null,
   users: [],
   expandedUserId: null,
+  outgoingFollows: new Map(),
+  incomingFollows: new Map(),
+  incomingRequests: [],
+  openFollowMenuId: "",
+  openRequestFollowMenuId: "",
+  pendingFollowIds: new Set(),
+  pendingRequestIds: new Set(),
+  followMessage: "",
+  followMessageType: "",
+  connectMessage: "",
+  connectMessageType: "",
+  connectTab: "all",
   disciplines: [],
   achievements: new Map(),
   activeView: "dex",
@@ -33,6 +45,10 @@ const els = {
   userSearch: document.querySelector("#user-search-input"),
   userSearchState: document.querySelector("#user-search-state"),
   userList: document.querySelector("#user-list"),
+  connectState: document.querySelector("#connect-state"),
+  requestList: document.querySelector("#request-list"),
+  connectBadge: document.querySelector("#connect-badge"),
+  connectTabs: document.querySelectorAll("[data-connect-tab]"),
   authTabs: document.querySelectorAll("[data-auth-tab]"),
   panes: document.querySelectorAll(".auth-pane"),
   profileState: document.querySelector("#profile-state"),
@@ -49,7 +65,8 @@ const els = {
   loginForm: document.querySelector("#login-form"),
   registerForm: document.querySelector("#register-form"),
   editForm: document.querySelector("#edit-form"),
-  logout: document.querySelector("#logout-button")
+  logout: document.querySelector("#logout-button"),
+  deleteProfile: document.querySelector("#delete-profile-button")
 };
 
 const categoryColors = {
@@ -75,10 +92,12 @@ async function init() {
   await loadSession();
   await loadDisciplines();
   await loadUsers();
+  await loadFollowData();
   await loadProfileAndStats();
   finishAuthRestore();
   renderDex();
   renderUserSearch();
+  renderConnect();
   renderProfile();
 }
 
@@ -90,7 +109,9 @@ function bindUi() {
   });
 
   els.nav.forEach((button) => {
-    button.addEventListener("click", () => showView(button.dataset.view));
+    button.addEventListener("click", () => {
+      void showView(button.dataset.view);
+    });
   });
 
   els.search.addEventListener("input", () => {
@@ -114,11 +135,18 @@ function bindUi() {
   els.authTabs.forEach((button) => {
     button.addEventListener("click", () => showAuthPane(button.dataset.authTab));
   });
+  els.connectTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.connectTab = button.dataset.connectTab;
+      renderConnect();
+    });
+  });
 
   els.loginForm.addEventListener("submit", handleLogin);
   els.registerForm.addEventListener("submit", handleRegister);
   els.editForm.addEventListener("submit", handleProfileSave);
   els.logout.addEventListener("click", handleLogout);
+  els.deleteProfile.addEventListener("click", handleProfileDelete);
 }
 
 async function initSupabase() {
@@ -180,18 +208,22 @@ async function handleAuthStateChange(event, session) {
   if (event === "SIGNED_OUT") {
     clearPersonalState();
     await loadUsers();
+    await loadFollowData();
     finishAuthRestore();
     renderDex();
     renderUserSearch();
+    renderConnect();
     renderProfile();
     showAuthPane("login");
     return;
   }
   await loadUsers();
+  await loadFollowData();
   await loadProfileAndStats();
   finishAuthRestore();
   renderDex();
   renderUserSearch();
+  renderConnect();
   renderProfile();
 }
 
@@ -231,7 +263,7 @@ async function loadUsers() {
 
   const { data, error } = await state.supabase
     .from("oeffentliche_profile")
-    .select("id, nutzername, rank")
+    .select("id, nutzername, profilbild, rank, dex, bronze, silver, gold, followers, following")
     .order("nutzername", { ascending: true });
 
   if (error) {
@@ -240,7 +272,52 @@ async function loadUsers() {
   }
 
   state.users = data ?? [];
+  if (!state.users.length) {
+    setUserSearchState("Keine Profile gefunden. Pruefe in Supabase, ob in public.nutzer fuer beide Accounts ein Profil existiert.", "error");
+    return;
+  }
   hideState(els.userSearchState);
+}
+
+async function loadFollowData() {
+  state.outgoingFollows = new Map();
+  state.incomingFollows = new Map();
+  state.incomingRequests = [];
+  if (!state.connected || !state.session?.user) {
+    updateConnectBadge();
+    return;
+  }
+
+  const userId = state.session.user.id;
+  const [{ data: outgoing, error: outgoingError }, { data: incoming, error: incomingError }] = await Promise.all([
+    state.supabase
+      .from("follow")
+      .select("follower_id, gefolgter_id, status, erstellt_am")
+      .eq("follower_id", userId),
+    state.supabase
+      .from("follow")
+      .select("follower_id, gefolgter_id, status, erstellt_am")
+      .eq("gefolgter_id", userId)
+      .order("erstellt_am", { ascending: false })
+  ]);
+
+  if (outgoingError || incomingError) {
+    state.connectMessage = "Follow-Daten konnten nicht geladen werden.";
+    state.connectMessageType = "error";
+    updateConnectBadge();
+    return;
+  }
+
+  state.connectMessage = "";
+  state.connectMessageType = "";
+  (outgoing ?? []).forEach((follow) => {
+    state.outgoingFollows.set(follow.gefolgter_id, follow.status);
+  });
+  state.incomingRequests = incoming ?? [];
+  state.incomingRequests.forEach((follow) => {
+    state.incomingFollows.set(follow.follower_id, follow.status);
+  });
+  updateConnectBadge();
 }
 
 async function loadProfileAndStats() {
@@ -321,7 +398,11 @@ function renderUserSearch() {
     return;
   }
 
-  hideState(els.userSearchState);
+  if (state.followMessage) {
+    setUserSearchState(state.followMessage, state.followMessageType);
+  } else {
+    hideState(els.userSearchState);
+  }
   const fragment = document.createDocumentFragment();
   users.forEach((user) => fragment.append(renderUserCard(user)));
   els.userList.append(fragment);
@@ -339,6 +420,11 @@ function matchesUserSearch(user, query) {
 function renderUserCard(user) {
   const isExpanded = state.expandedUserId === user.id;
   const stats = publicUserStats(user);
+  const followStatus = state.outgoingFollows.get(user.id) ?? "";
+  const incomingStatus = state.incomingFollows.get(user.id) ?? "";
+  const isPending = state.pendingFollowIds.has(user.id);
+  const canShowFollow = state.session?.user?.id !== user.id;
+  const isMenuOpen = state.openFollowMenuId === user.id;
   const article = document.createElement("article");
   article.className = `user-card${isExpanded ? " is-expanded" : ""}`;
   article.innerHTML = `
@@ -363,13 +449,36 @@ function renderUserCard(user) {
           <span class="stat-card stat-silver"><strong>${stats.silver}</strong><span>Silber</span></span>
           <span class="stat-card stat-gold"><strong>${stats.gold}</strong><span>Gold</span></span>
         </div>
-        <button class="follow-button" type="button">Follow</button>
+        ${canShowFollow ? `
+          <button class="follow-button ${escapeHtml(followButtonClass(followStatus))}" type="button" data-follow-user="${escapeHtml(user.id)}" ${isPending ? "disabled" : ""}>${escapeHtml(followButtonLabel(followStatus, incomingStatus, isPending))}</button>
+          ${isMenuOpen && followStatus ? `<div class="follow-menu"><button type="button" data-follow-menu-action="${followStatus === "angefragt" ? "withdraw" : "unfollow"}">${followStatus === "angefragt" ? "Anfrage zurueckziehen" : "Entfolgen"}</button></div>` : ""}
+          ${incomingStatus === "angefragt" ? `
+            <div class="incoming-search-actions">
+              <button class="accept-button" type="button" data-incoming-action="accept" ${isPending ? "disabled" : ""}>Annehmen</button>
+              <button class="decline-button" type="button" data-incoming-action="decline" ${isPending ? "disabled" : ""}>Ablehnen</button>
+            </div>
+          ` : ""}
+        ` : ""}
       </div>
     ` : ""}
   `;
   article.querySelector(".user-card-toggle").addEventListener("click", () => {
     state.expandedUserId = isExpanded ? null : user.id;
     renderUserSearch();
+  });
+  article.querySelector("[data-follow-user]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void handleFollowClick(user.id);
+  });
+  article.querySelector("[data-follow-menu-action]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void handleFollowMenuAction(user.id, event.currentTarget.dataset.followMenuAction);
+  });
+  article.querySelectorAll("[data-incoming-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void handleIncomingSearchAction(user.id, button.dataset.incomingAction);
+    });
   });
   return article;
 }
@@ -383,6 +492,31 @@ function publicUserStats(user) {
     silver: user.silver ?? 0,
     gold: user.gold ?? 0
   };
+}
+
+function ownFollowCounts() {
+  if (!state.session?.user) {
+    return { followers: 0, following: 0 };
+  }
+  const ownPublicProfile = state.users.find((user) => user.id === state.session.user.id);
+  const followers = state.incomingRequests.filter((request) => request.status === "angenommen").length;
+  const following = [...state.outgoingFollows.values()].filter((status) => status === "angenommen").length;
+  return {
+    followers: followers || ownPublicProfile?.followers || 0,
+    following: following || ownPublicProfile?.following || 0
+  };
+}
+
+function followButtonLabel(status, incomingStatus, isPending) {
+  if (isPending) return "Speichert ...";
+  if (status === "angefragt") return "Angefragt";
+  if (status === "angenommen") return "Gefolgt";
+  if (incomingStatus === "angenommen") return "Zurueckfolgen";
+  return "Folgen";
+}
+
+function followButtonClass(status) {
+  return status ? "is-secondary" : "is-positive";
 }
 
 function renderDisciplineCard(discipline) {
@@ -416,6 +550,136 @@ function renderDisciplineCard(discipline) {
 function renderSportIcon(category) {
   const color = categoryColors[category] ?? "var(--color-primary)";
   return `<span class="sport-icon" style="--icon-color: ${color}" title="${escapeHtml(category)}" aria-label="${escapeHtml(category)}">${iconFor(category)}</span>`;
+}
+
+function renderConnect() {
+  els.requestList.innerHTML = "";
+  els.connectTabs.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.connectTab === state.connectTab);
+  });
+
+  if (!state.connected) {
+    setConnectState("Demo-Modus: Anfragen sind erst mit Supabase-Verbindung verfuegbar.");
+    return;
+  }
+  if (!state.session?.user) {
+    setConnectState("Bitte melde dich im Profil an, um Follow-Anfragen zu sehen.");
+    return;
+  }
+
+  const openRequests = state.incomingRequests.filter((request) => request.status === "angefragt");
+  const followers = state.incomingRequests.filter((request) => request.status === "angenommen");
+  const usersById = new Map(state.users.map((user) => [user.id, user]));
+  const following = [...state.outgoingFollows.entries()]
+    .filter(([, status]) => status === "angenommen")
+    .map(([userId]) => usersById.get(userId) ?? { id: userId, nutzername: "nutzer", rank: 1 });
+  const cards = connectCardsForTab(state.connectTab, openRequests, followers, following);
+
+  if (state.connectMessage) {
+    setConnectState(state.connectMessage, state.connectMessageType);
+  } else if (!cards.length) {
+    setConnectState(connectEmptyMessage(state.connectTab));
+  } else {
+    hideState(els.connectState);
+  }
+
+  if (!cards.length) return;
+
+  const fragment = document.createDocumentFragment();
+  cards.forEach((card) => {
+    if (card.kind === "following") {
+      fragment.append(renderFollowingCard(card.user));
+      return;
+    }
+    const requester = usersById.get(card.request.follower_id) ?? { id: card.request.follower_id, nutzername: "nutzer", rank: 1 };
+    fragment.append(renderRequestCard(card.request, requester));
+  });
+  els.requestList.append(fragment);
+}
+
+function connectCardsForTab(tab, openRequests, followers, following) {
+  const incomingCards = [
+    ...openRequests.map((request) => ({ kind: "incoming", request })),
+    ...followers.map((request) => ({ kind: "incoming", request }))
+  ];
+  const followingCards = following.map((user) => ({ kind: "following", user }));
+  if (tab === "followers") return incomingCards;
+  if (tab === "following") return followingCards;
+  return [...incomingCards, ...followingCards];
+}
+
+function connectEmptyMessage(tab) {
+  if (tab === "followers") return "Keine Follower oder offenen Anfragen";
+  if (tab === "following") return "Du folgst noch niemandem";
+  return "Keine Follower, offenen Anfragen oder gefolgten Profile";
+}
+
+function renderRequestCard(request, requester) {
+  const article = document.createElement("article");
+  article.className = "request-card";
+  const requesterId = request.follower_id;
+  const reverseStatus = state.outgoingFollows.get(requesterId) ?? "";
+  const isPending = state.pendingRequestIds.has(requesterId);
+  const isAccepted = request.status === "angenommen";
+  article.innerHTML = `
+    <div class="avatar small-avatar">${escapeHtml(initials(requester))}</div>
+    <div class="request-body">
+      <h3>@${escapeHtml(requester.nutzername ?? "nutzer")}</h3>
+      <span class="rank-label ${escapeHtml(rankClass(requester.rank))}">${escapeHtml(rankLabel(requester.rank))}</span>
+    </div>
+    <span class="request-type">${request.status === "angefragt" ? "Anfrage" : "Follower"}</span>
+    <div class="request-actions">
+      ${request.status === "angefragt" ? `
+        <button class="accept-button" type="button" data-request-action="accept" ${isPending ? "disabled" : ""}>Annehmen</button>
+        <button class="decline-button" type="button" data-request-action="decline" ${isPending ? "disabled" : ""}>Ablehnen</button>
+      ` : ""}
+      ${isAccepted ? `
+        ${renderReverseFollowButton(reverseStatus, isPending)}
+        <button class="decline-button" type="button" data-request-action="remove-follower" ${isPending ? "disabled" : ""}>Entfernen</button>
+      ` : ""}
+    </div>
+  `;
+  article.querySelectorAll("[data-request-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void handleRequestAction(requesterId, button.dataset.requestAction);
+    });
+  });
+  return article;
+}
+
+function renderFollowingCard(user) {
+  const article = document.createElement("article");
+  article.className = "request-card";
+  const userId = user.id;
+  const isPending = state.pendingRequestIds.has(userId);
+  article.innerHTML = `
+    <div class="avatar small-avatar">${escapeHtml(initials(user))}</div>
+    <div class="request-body">
+      <h3>@${escapeHtml(user.nutzername ?? "nutzer")}</h3>
+      <span class="rank-label ${escapeHtml(rankClass(user.rank))}">${escapeHtml(rankLabel(user.rank))}</span>
+    </div>
+    <span class="request-type">Gefolgt</span>
+    <div class="request-actions">
+      <button class="accept-back-button is-secondary" type="button" disabled>Gefolgt</button>
+      <button class="decline-button" type="button" data-request-action="unfollow-outgoing" ${isPending ? "disabled" : ""}>Entfolgen</button>
+    </div>
+  `;
+  article.querySelectorAll("[data-request-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void handleRequestAction(userId, button.dataset.requestAction);
+    });
+  });
+  return article;
+}
+
+function renderReverseFollowButton(status, isPending) {
+  if (status === "angefragt") {
+    return `<button class="accept-back-button is-secondary" type="button" data-request-action="toggle-follow-menu" ${isPending ? "disabled" : ""}>Angefragt</button>`;
+  }
+  if (status === "angenommen") {
+    return `<button class="accept-back-button is-secondary" type="button" disabled>Gefolgt</button>`;
+  }
+  return `<button class="accept-back-button" type="button" data-request-action="follow-back" ${isPending ? "disabled" : ""}>Zurueckfolgen</button>`;
 }
 
 function renderProfile() {
@@ -453,8 +717,9 @@ function renderProfile() {
   els.statBronze.textContent = String(medals.filter((medal) => medal === "bronze").length);
   els.statSilver.textContent = String(medals.filter((medal) => medal === "silber").length);
   els.statGold.textContent = String(medals.filter((medal) => medal === "gold").length);
-  els.statFollowers.textContent = "0";
-  els.statFollowing.textContent = "0";
+  const ownCounts = ownFollowCounts();
+  els.statFollowers.textContent = String(ownCounts.followers);
+  els.statFollowing.textContent = String(ownCounts.following);
 
   if (state.authRestoring) {
     return;
@@ -465,6 +730,7 @@ function renderProfile() {
   els.registerForm.querySelector("button").disabled = !isConnected;
   els.editForm.querySelector("button").disabled = !isConnected || !isSignedIn;
   els.logout.disabled = !isConnected || !isSignedIn;
+  els.deleteProfile.disabled = !isConnected || !isSignedIn;
 }
 
 async function handleLogin(event) {
@@ -524,10 +790,245 @@ async function handleProfileSave(event) {
   setProfileState("Profil gespeichert.", "success");
 }
 
+async function handleProfileDelete() {
+  if (!state.connected || !state.session?.user) return;
+  const confirmed = window.confirm("Profil wirklich loeschen? Deine Leistungen, Beitraege und Follow-Beziehungen werden entfernt.");
+  if (!confirmed) return;
+
+  els.deleteProfile.disabled = true;
+  setProfileState("Profil wird geloescht ...");
+  const { data, error } = await state.supabase
+    .from("nutzer")
+    .delete()
+    .eq("id", state.session.user.id)
+    .select("id");
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    els.deleteProfile.disabled = false;
+    setProfileState(error?.message ?? "Profil konnte nicht geloescht werden.", "error");
+    return;
+  }
+
+  await state.supabase.auth.signOut();
+  clearPersonalState();
+  await loadUsers();
+  await loadFollowData();
+  renderDex();
+  renderUserSearch();
+  renderConnect();
+  renderProfile();
+  setProfileState("Profil geloescht.", "success");
+  showAuthPane("login");
+}
+
+async function handleFollowClick(userId) {
+  state.followMessage = "";
+  state.followMessageType = "";
+  if (!state.connected) {
+    state.followMessage = "Supabase ist nicht verbunden. Folgen ist im Demo-Modus nicht verfuegbar.";
+    renderUserSearch();
+    return;
+  }
+  if (!state.session?.user) {
+    state.followMessage = "Bitte melde dich im Profil an, um anderen Nutzern folgen zu koennen.";
+    state.followMessageType = "error";
+    renderUserSearch();
+    await showView("profile");
+    return;
+  }
+  if (state.session.user.id === userId || state.pendingFollowIds.has(userId)) return;
+
+  const currentStatus = state.outgoingFollows.get(userId) ?? "";
+  if (currentStatus) {
+    state.openFollowMenuId = state.openFollowMenuId === userId ? "" : userId;
+    renderUserSearch();
+    return;
+  }
+
+  state.pendingFollowIds.add(userId);
+  renderUserSearch();
+
+  let error = null;
+  let data = null;
+  ({ data, error } = await state.supabase
+    .from("follow")
+    .insert({ follower_id: state.session.user.id, gefolgter_id: userId, status: "angefragt" })
+    .select("follower_id"));
+
+  if (!error && Array.isArray(data) && data.length === 0) {
+    error = new Error("Die Follow-Aktion konnte nicht gespeichert werden.");
+  }
+
+  if (error) {
+    state.followMessage = followErrorMessage(error);
+    state.followMessageType = "error";
+  }
+
+  state.pendingFollowIds.delete(userId);
+  await refreshSocialState();
+}
+
+async function handleFollowMenuAction(userId, action) {
+  if (!state.connected || !state.session?.user || state.pendingFollowIds.has(userId)) return;
+
+  state.followMessage = "";
+  state.followMessageType = "";
+  const requiredStatus = action === "withdraw" ? "angefragt" : "angenommen";
+  state.pendingFollowIds.add(userId);
+  state.openFollowMenuId = "";
+  renderUserSearch();
+
+  const { data, error } = await state.supabase
+    .from("follow")
+    .delete()
+    .eq("follower_id", state.session.user.id)
+    .eq("gefolgter_id", userId)
+    .eq("status", requiredStatus)
+    .select("follower_id");
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    state.followMessage = error ? followErrorMessage(error) : "Die Follow-Aktion konnte nicht gespeichert werden.";
+    state.followMessageType = "error";
+  }
+
+  state.pendingFollowIds.delete(userId);
+  await refreshSocialState();
+}
+
+async function handleIncomingSearchAction(userId, action) {
+  if (!state.connected || !state.session?.user || state.pendingFollowIds.has(userId)) return;
+
+  state.pendingFollowIds.add(userId);
+  renderUserSearch();
+  const query = state.supabase.from("follow");
+  const request = action === "accept"
+    ? query.update({ status: "angenommen" })
+    : query.delete();
+  const { data, error } = await request
+    .eq("follower_id", userId)
+    .eq("gefolgter_id", state.session.user.id)
+    .eq("status", "angefragt")
+    .select("follower_id");
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    state.followMessage = error ? followErrorMessage(error) : "Die Anfrage wurde nicht gefunden oder bereits bearbeitet.";
+    state.followMessageType = "error";
+  }
+
+  state.pendingFollowIds.delete(userId);
+  await refreshSocialState();
+}
+
+async function handleRequestAction(requesterId, action) {
+  state.connectMessage = "";
+  state.connectMessageType = "";
+  if (!state.connected || !state.session?.user || state.pendingRequestIds.has(requesterId)) return;
+
+  if (action === "close") {
+    renderConnect();
+    return;
+  }
+
+  if (action === "toggle-follow-menu") {
+    state.openRequestFollowMenuId = state.openRequestFollowMenuId === requesterId ? "" : requesterId;
+    renderConnect();
+    return;
+  }
+
+  state.pendingRequestIds.add(requesterId);
+  state.openRequestFollowMenuId = "";
+  renderConnect();
+
+  let error = null;
+  let data = null;
+  if (action === "accept") {
+    ({ data, error } = await state.supabase
+      .from("follow")
+      .update({ status: "angenommen" })
+      .eq("follower_id", requesterId)
+      .eq("gefolgter_id", state.session.user.id)
+      .eq("status", "angefragt")
+      .select("follower_id"));
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const request = state.incomingRequests.find((item) => item.follower_id === requesterId);
+      if (request) request.status = "angenommen";
+      state.incomingFollows.set(requesterId, "angenommen");
+    }
+  } else if (action === "follow-back") {
+    ({ data, error } = await state.supabase
+      .from("follow")
+      .insert({ follower_id: state.session.user.id, gefolgter_id: requesterId, status: "angefragt" })
+      .select("follower_id"));
+    if (!error && Array.isArray(data) && data.length > 0) {
+      state.outgoingFollows.set(requesterId, "angefragt");
+    }
+  } else if (action === "decline") {
+    ({ data, error } = await state.supabase
+      .from("follow")
+      .delete()
+      .eq("follower_id", requesterId)
+      .eq("gefolgter_id", state.session.user.id)
+      .eq("status", "angefragt")
+      .select("follower_id"));
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const request = state.incomingRequests.find((item) => item.follower_id === requesterId);
+      if (request) request.status = "abgelehnt";
+      state.incomingFollows.delete(requesterId);
+    }
+  } else if (action === "remove-follower") {
+    ({ data, error } = await state.supabase
+      .from("follow")
+      .delete()
+      .eq("follower_id", requesterId)
+      .eq("gefolgter_id", state.session.user.id)
+      .eq("status", "angenommen")
+      .select("follower_id"));
+    if (!error && Array.isArray(data) && data.length > 0) {
+      state.incomingRequests = state.incomingRequests.filter((item) => item.follower_id !== requesterId);
+      state.incomingFollows.delete(requesterId);
+    }
+  } else if (action === "withdraw-outgoing" || action === "unfollow-outgoing") {
+    const requiredStatus = action === "withdraw-outgoing" ? "angefragt" : "angenommen";
+    ({ data, error } = await state.supabase
+      .from("follow")
+      .delete()
+      .eq("follower_id", state.session.user.id)
+      .eq("gefolgter_id", requesterId)
+      .eq("status", requiredStatus)
+      .select("follower_id"));
+    if (!error && Array.isArray(data) && data.length > 0) {
+      state.outgoingFollows.delete(requesterId);
+    }
+  } else {
+    error = new Error("Unbekannte Follow-Aktion.");
+  }
+
+  if (!error && Array.isArray(data) && data.length === 0) {
+    error = new Error("Die Anfrage wurde nicht gefunden oder bereits bearbeitet.");
+  }
+
+  if (error) {
+    state.connectMessage = followErrorMessage(error);
+    state.connectMessageType = "error";
+  }
+
+  state.pendingRequestIds.delete(requesterId);
+  if (!error) {
+    updateConnectBadge();
+    await loadUsers();
+  }
+  renderConnect();
+  renderUserSearch();
+  renderProfile();
+}
+
 async function handleLogout() {
   if (!state.connected) return;
   await state.supabase.auth.signOut();
   clearPersonalState();
+  await loadFollowData();
+  renderUserSearch();
+  renderConnect();
   renderProfile();
   renderDex();
   showAuthPane("login");
@@ -544,9 +1045,19 @@ function clearPersonalData() {
   state.profile = null;
   state.profileLoadError = "";
   state.achievements = new Map();
+  state.outgoingFollows = new Map();
+  state.incomingFollows = new Map();
+  state.incomingRequests = [];
+  state.pendingFollowIds = new Set();
+  state.pendingRequestIds = new Set();
+  state.followMessage = "";
+  state.followMessageType = "";
+  state.connectMessage = "";
+  state.connectMessageType = "";
+  updateConnectBadge();
 }
 
-function showView(viewName) {
+async function showView(viewName) {
   state.activeView = viewName;
   els.views.forEach((view) => view.classList.toggle("is-active", view.id === `view-${viewName}`));
   els.nav.forEach((button, index) => {
@@ -556,6 +1067,10 @@ function showView(viewName) {
       setActiveNavIndicator(index);
     }
   });
+  if (viewName === "connect") {
+    await loadFollowData();
+    renderConnect();
+  }
   document.querySelector("#app").focus({ preventScroll: true });
 }
 
@@ -594,6 +1109,10 @@ function setUserSearchState(message, type = "") {
   setStateBox(els.userSearchState, message, type);
 }
 
+function setConnectState(message, type = "") {
+  setStateBox(els.connectState, message, type);
+}
+
 function setStateBox(element, message, type) {
   element.hidden = false;
   element.textContent = message;
@@ -604,6 +1123,30 @@ function hideState(element) {
   element.hidden = true;
   element.textContent = "";
   element.className = "state-box";
+}
+
+async function refreshSocialState() {
+  await loadUsers();
+  await loadFollowData();
+  renderUserSearch();
+  renderConnect();
+  renderProfile();
+}
+
+function updateConnectBadge() {
+  const count = state.session?.user ? state.incomingRequests.filter((request) => request.status === "angefragt").length : 0;
+  els.connectBadge.hidden = count === 0;
+  els.connectBadge.textContent = String(count);
+}
+
+function followErrorMessage(error) {
+  const message = error?.message ?? "";
+  if (message.includes("duplicate key")) return "Diese Follow-Beziehung existiert bereits.";
+  if (message.includes("permission") || message.includes("not allowed") || message.includes("nicht erlaubt")) {
+    return "Diese Aktion ist nicht erlaubt.";
+  }
+  if (message.includes("Anmeldung erforderlich")) return "Bitte melde dich zuerst an.";
+  return message || "Die Follow-Aktion konnte nicht gespeichert werden.";
 }
 
 function bestMedal(a = "keine", b = "keine") {
