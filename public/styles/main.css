@@ -775,41 +775,201 @@ button:disabled {
   padding: 7px 10px;
 }
 
+.feed-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(100%, 640px);
+  margin: 0 auto;
+  gap: 10px;
+  padding: 6px 2px 2px;
+}
+
+.feed-headline h2,
+.feed-author h3 {
+  margin: 0;
+}
+
+.feed-headline p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
 .feed-card {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  width: min(100%, 640px);
+  margin: 0 auto;
+  padding: 0 0 12px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
   background: var(--color-card);
+  overflow: hidden;
 }
 
-.feed-body {
-  min-width: 0;
-}
-
-.feed-head {
-  display: flex;
-  justify-content: space-between;
+.feed-author {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
   gap: 10px;
+  padding: 12px 12px 0;
 }
 
-.feed-head h3 {
-  margin: 0;
+.feed-author h3 {
   font-size: 1rem;
 }
 
-.feed-head time,
-.feed-body p {
+.feed-author time,
+.feed-text,
+.feed-meta,
+.feed-end {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.78rem;
 }
 
-.feed-body p,
+.feed-media {
+  aspect-ratio: 4 / 5;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at 35% 20%, color-mix(in srgb, var(--category-color, var(--color-primary)), transparent 72%), transparent 36%),
+    linear-gradient(160deg, var(--color-soft-panel), var(--color-input));
+  color: var(--color-muted);
+}
+
+.feed-media-icon {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text);
+}
+
+.feed-media-icon svg {
+  width: 64px;
+  height: 64px;
+  fill: currentColor;
+  opacity: 0.82;
+}
+
+.feed-media span {
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
 .feed-performance {
-  margin-top: 8px;
+  margin: 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.feed-discipline,
+.feed-medal {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.feed-performance strong {
+  font-size: 1.45rem;
+  line-height: 1.1;
+}
+
+.feed-medal.bronze {
+  color: var(--color-bronze);
+}
+
+.feed-medal.silber {
+  color: var(--color-silver);
+}
+
+.feed-medal.gold {
+  color: var(--color-gold);
+}
+
+.feed-text {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.feed-text strong {
+  color: var(--color-text);
+}
+
+.text-button {
+  justify-self: start;
+  min-height: 32px;
+  margin: -4px 12px 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.feed-empty {
+  width: min(100%, 640px);
+  margin: 14px auto 0;
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-card);
+  color: var(--color-muted);
+}
+
+.feed-empty p {
+  white-space: pre-line;
+}
+
+.feed-empty-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.feed-empty-actions button:only-child {
+  grid-column: 1 / -1;
+}
+
+.feed-end {
+  text-align: center;
+  padding: 10px 0 2px;
+}
+
+.feed-card-skeleton span,
+.feed-card-skeleton strong,
+.feed-card-skeleton .feed-media {
+  display: block;
+  min-height: 18px;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--color-soft-panel), var(--color-soft-panel-strong), var(--color-soft-panel));
+}
+
+.feed-card-skeleton .feed-author > span {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.feed-card-skeleton .feed-author div {
+  display: grid;
+  gap: 8px;
+}
+
+.feed-card-skeleton .feed-author div span:first-child {
+  width: 42%;
+}
+
+.feed-card-skeleton .feed-author div span:last-child {
+  width: 28%;
+}
+
+.feed-card-skeleton .feed-performance {
+  gap: 8px;
 }
 
 .user-card {

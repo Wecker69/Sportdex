@@ -20,6 +20,9 @@ const state = {
   feedOffset: 0,
   feedHasMore: true,
   feedLoading: false,
+  feedError: "",
+  feedNeedsRefresh: true,
+  expandedFeedTextIds: new Set(),
   outgoingFollows: new Map(),
   incomingFollows: new Map(),
   incomingRequests: [],
@@ -59,6 +62,7 @@ const els = {
   feedState: document.querySelector("#feed-state"),
   feedList: document.querySelector("#feed-list"),
   feedMore: document.querySelector("#feed-more"),
+  feedRefresh: document.querySelector("#feed-refresh"),
   userSearchForm: document.querySelector("#user-search-form"),
   userSearch: document.querySelector("#user-search-input"),
   userSearchState: document.querySelector("#user-search-state"),
@@ -178,6 +182,15 @@ function bindUi() {
   els.feedMore.addEventListener("click", () => {
     void loadFeed(false);
   });
+  els.feedRefresh.addEventListener("click", () => {
+    void loadFeed(true);
+  });
+  window.addEventListener("scroll", () => {
+    if (state.activeView !== "feed" || state.feedLoading || !state.feedHasMore || state.feedError) return;
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 360) {
+      void loadFeed(false);
+    }
+  }, { passive: true });
 }
 
 async function initSupabase() {
@@ -397,6 +410,8 @@ async function loadFeed(reset = false) {
     state.feedPosts = [];
     state.feedOffset = 0;
     state.feedHasMore = true;
+    state.feedError = "";
+    state.feedNeedsRefresh = false;
   }
   if (!state.connected || !state.session?.user || state.feedLoading || !state.feedHasMore) {
     renderFeed();
@@ -412,14 +427,18 @@ async function loadFeed(reset = false) {
   state.feedLoading = false;
 
   if (error) {
-    setFeedState(`Feed konnte nicht geladen werden: ${error.message}`, "error");
+    state.feedError = `Feed konnte nicht geladen werden: ${error.message}`;
+    renderFeed();
     return;
   }
 
   const posts = data ?? [];
-  state.feedPosts = reset ? posts : [...state.feedPosts, ...posts];
+  const known = new Set(reset ? [] : state.feedPosts.map((post) => post.beitrag_id));
+  const uniquePosts = posts.filter((post) => !known.has(post.beitrag_id));
+  state.feedPosts = reset ? posts : [...state.feedPosts, ...uniquePosts];
   state.feedOffset += posts.length;
   state.feedHasMore = posts.length === 10;
+  state.feedError = "";
   renderFeed();
 }
 
@@ -455,7 +474,6 @@ function matchesFilters(discipline) {
     || (state.filters.status === "offen" ? !["bronze", "silber", "gold"].includes(status) : status === state.filters.status);
   const queryMatch = !query || [
     discipline.name,
-    discipline.beschreibung,
     discipline.kategorie_1,
     discipline.kategorie_2
   ].filter(Boolean).some((value) => normalizeSearch(value).includes(query));
@@ -521,21 +539,33 @@ function renderUserSearch() {
 function renderFeed() {
   els.feedList.innerHTML = "";
   els.feedMore.hidden = true;
+  els.feedRefresh.disabled = state.feedLoading;
 
   if (!state.connected) {
     setFeedState("Demo-Modus: Der Feed ist erst mit Supabase-Verbindung verfuegbar.");
     return;
   }
   if (!state.session?.user) {
-    setFeedState("Melde dich an, um geteilte Leistungen zu sehen.");
+    hideState(els.feedState);
+    renderFeedActionState("Melde dich an, um deine Beitraege und die Beitraege deiner gefolgten Sportler zu sehen.", [{ label: "Zur Anmeldung", view: "profile" }]);
+    return;
+  }
+  if (state.feedError) {
+    hideState(els.feedState);
+    renderFeedActionState(state.feedError, [{ label: "Erneut versuchen", action: "retry" }], "error");
     return;
   }
   if (state.feedLoading && !state.feedPosts.length) {
-    setFeedState("Feed wird geladen ...");
+    hideState(els.feedState);
+    renderFeedSkeletons();
     return;
   }
   if (!state.feedPosts.length) {
-    setFeedState("Noch keine Beitraege. Teile eine Leistung oder folge anderen Sportlern.");
+    hideState(els.feedState);
+    renderFeedActionState("Hier beginnt dein Sport-Feed.\nTeile deine erste Leistung oder finde Sportler, denen du folgen moechtest.", [
+      { label: "Zum Dex", view: "dex" },
+      { label: "Sportler suchen", view: "search" }
+    ]);
     return;
   }
 
@@ -543,7 +573,14 @@ function renderFeed() {
   const fragment = document.createDocumentFragment();
   state.feedPosts.forEach((post) => fragment.append(renderFeedCard(post)));
   els.feedList.append(fragment);
-  els.feedMore.hidden = !state.feedHasMore;
+  if (state.feedLoading) renderFeedSkeletons(2);
+  if (!state.feedHasMore) {
+    const end = document.createElement("p");
+    end.className = "feed-end";
+    end.textContent = "Du bist auf dem neuesten Stand";
+    els.feedList.append(end);
+  }
+  els.feedMore.hidden = true;
   els.feedMore.disabled = state.feedLoading;
   els.feedMore.textContent = state.feedLoading ? "Laedt ..." : "Mehr laden";
 }
@@ -551,27 +588,89 @@ function renderFeed() {
 function renderFeedCard(post) {
   const article = document.createElement("article");
   article.className = "feed-card";
-  const discipline = {
+  const discipline = state.disciplines.find((item) => item.id === post.disziplin_id) ?? {
+    id: post.disziplin_id,
     einheit: post.einheit,
     nachkommastellen: post.nachkommastellen,
-    name: post.disziplin_name
+    name: post.disziplin_name,
+    kategorie_1: "",
+    kategorie_2: "",
+    dsa: false
   };
+  article.style.setProperty("--category-color", categoryColors[discipline.kategorie_1] ?? "var(--color-primary)");
+  const text = post.beitrag_text ?? "";
+  const isLong = text.length > 180;
+  const isExpanded = state.expandedFeedTextIds.has(post.beitrag_id);
+  const displayText = isLong && !isExpanded ? `${text.slice(0, 180).trim()}...` : text;
   article.innerHTML = `
-    <div class="avatar small-avatar">${escapeHtml(initials(post))}</div>
-    <div class="feed-body">
-      <div class="feed-head">
+    <div class="feed-author">
+      <div class="avatar small-avatar">${escapeHtml(initials(post))}</div>
+      <div>
         <h3>@${escapeHtml(post.nutzername ?? "nutzer")}</h3>
         <time datetime="${escapeHtml(post.beitrag_erstellt_am)}">${escapeHtml(formatDate(post.beitrag_erstellt_am))}</time>
       </div>
-      ${post.beitrag_text ? `<p>${escapeHtml(post.beitrag_text)}</p>` : ""}
-      <div class="feed-performance">
-        <strong>${escapeHtml(post.disziplin_name)}</strong>
-        <span>${escapeHtml(formatEffortValue(post.wert, discipline))}</span>
-        <span>${escapeHtml(medalLabel(post.medaille))}</span>
-      </div>
+    </div>
+    <div class="feed-media" aria-label="Bildplatzhalter">
+      <div class="feed-media-icon">${iconFor(discipline.kategorie_1)}</div>
+      <span>Bildplatzhalter</span>
+    </div>
+    <div class="feed-performance">
+      <span class="feed-discipline">${escapeHtml(post.disziplin_name)}</span>
+      <strong>${escapeHtml(formatFeedEffortValue(post.wert, discipline))}</strong>
+      <span class="feed-medal ${escapeHtml(post.medaille ?? "unbewertet")}">${escapeHtml(medalLabel(post.medaille))}</span>
+      <span class="feed-meta">${escapeHtml([discipline.kategorie_1, discipline.kategorie_2, discipline.dsa ? "DSA" : ""].filter(Boolean).join(" - "))}</span>
+    </div>
+    ${text ? `
+      <p class="feed-text"><strong>@${escapeHtml(post.nutzername ?? "nutzer")}</strong> ${escapeHtml(displayText)}</p>
+      ${isLong ? `<button class="text-button" type="button" data-feed-text="${escapeHtml(post.beitrag_id)}">${isExpanded ? "Weniger anzeigen" : "Mehr anzeigen"}</button>` : ""}
+    ` : ""}
+  `;
+  article.querySelector("[data-feed-text]")?.addEventListener("click", (event) => {
+    const id = event.currentTarget.dataset.feedText;
+    if (state.expandedFeedTextIds.has(id)) {
+      state.expandedFeedTextIds.delete(id);
+    } else {
+      state.expandedFeedTextIds.add(id);
+    }
+    renderFeed();
+  });
+  return article;
+}
+
+function renderFeedActionState(message, actions, type = "") {
+  const wrapper = document.createElement("div");
+  wrapper.className = `feed-empty${type ? ` is-${type}` : ""}`;
+  wrapper.innerHTML = `
+    <p>${escapeHtml(message)}</p>
+    <div class="feed-empty-actions">
+      ${actions.map((action) => `<button class="${action.action === "retry" ? "accept-button" : "ghost-button"}" type="button" data-feed-empty-action="${escapeHtml(action.action ?? "")}" data-feed-empty-view="${escapeHtml(action.view ?? "")}">${escapeHtml(action.label)}</button>`).join("")}
     </div>
   `;
-  return article;
+  wrapper.querySelectorAll("[data-feed-empty-action], [data-feed-empty-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.feedEmptyAction;
+      const view = button.dataset.feedEmptyView;
+      if (action === "retry") {
+        void loadFeed(true);
+      } else if (view) {
+        void showView(view);
+      }
+    });
+  });
+  els.feedList.append(wrapper);
+}
+
+function renderFeedSkeletons(count = 3) {
+  for (let index = 0; index < count; index += 1) {
+    const skeleton = document.createElement("article");
+    skeleton.className = "feed-card feed-card-skeleton";
+    skeleton.innerHTML = `
+      <div class="feed-author"><span></span><div><span></span><span></span></div></div>
+      <div class="feed-media"></div>
+      <div class="feed-performance"><span></span><strong></strong><span></span></div>
+    `;
+    els.feedList.append(skeleton);
+  }
 }
 
 function matchesUserSearch(user, query) {
@@ -1484,6 +1583,7 @@ async function handleRequestAction(requesterId, action) {
   if (!error) {
     updateConnectBadge();
     await loadUsers();
+    state.feedNeedsRefresh = true;
   }
   renderConnect();
   renderUserSearch();
@@ -1534,6 +1634,9 @@ function clearPersonalData() {
   state.feedOffset = 0;
   state.feedHasMore = true;
   state.feedLoading = false;
+  state.feedError = "";
+  state.feedNeedsRefresh = true;
+  state.expandedFeedTextIds = new Set();
   updateConnectBadge();
 }
 
@@ -1552,7 +1655,11 @@ async function showView(viewName) {
     renderConnect();
   }
   if (viewName === "feed") {
-    await loadFeed(true);
+    if (state.feedNeedsRefresh || (!state.feedPosts.length && !state.feedLoading)) {
+      await loadFeed(true);
+    } else {
+      renderFeed();
+    }
   }
   document.querySelector("#app").focus({ preventScroll: true });
 }
@@ -1615,6 +1722,7 @@ function hideState(element) {
 async function refreshSocialState() {
   await loadUsers();
   await loadFollowData();
+  state.feedNeedsRefresh = true;
   renderUserSearch();
   renderConnect();
   renderProfile();
@@ -1655,6 +1763,17 @@ function formatEffortValue(value, discipline) {
     minimumFractionDigits: 0,
     maximumFractionDigits: discipline.nachkommastellen ?? 0
   })} ${discipline.einheit}`;
+}
+
+function formatFeedEffortValue(value, discipline) {
+  const base = formatEffortValue(value, discipline);
+  if (discipline.name === "20x Freiwurf" || discipline.name === "20x Dreierwuerfe") {
+    return `${Number(value).toLocaleString("de-DE")} / 20 Treffer`;
+  }
+  if (discipline.name === "5x Lattenschiessen") {
+    return `${Number(value).toLocaleString("de-DE")} / 5 Treffer`;
+  }
+  return base;
 }
 
 function formatDate(value) {
