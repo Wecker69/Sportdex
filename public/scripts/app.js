@@ -8,11 +8,14 @@ const state = {
   authSubscription: null,
   profileLoadError: "",
   profile: null,
+  users: [],
+  expandedUserId: null,
   disciplines: [],
   achievements: new Map(),
   activeView: "dex",
   filters: {
-    search: ""
+    search: "",
+    userSearch: ""
   }
 };
 
@@ -21,10 +24,15 @@ const els = {
   connection: document.querySelector("#connection-state"),
   views: document.querySelectorAll(".view"),
   nav: document.querySelectorAll(".bottom-nav button"),
+  dexFilter: document.querySelector("#dex-filter"),
   list: document.querySelector("#discipline-list"),
   dexState: document.querySelector("#dex-state"),
   resultCount: document.querySelector("#result-count"),
   search: document.querySelector("#search-input"),
+  userSearchForm: document.querySelector("#user-search-form"),
+  userSearch: document.querySelector("#user-search-input"),
+  userSearchState: document.querySelector("#user-search-state"),
+  userList: document.querySelector("#user-list"),
   authTabs: document.querySelectorAll("[data-auth-tab]"),
   panes: document.querySelectorAll(".auth-pane"),
   profileState: document.querySelector("#profile-state"),
@@ -32,9 +40,12 @@ const els = {
   profileTitle: document.querySelector("#profile-title"),
   profileRank: document.querySelector("#profile-rank"),
   profileAvatar: document.querySelector("#profile-avatar"),
-  statDone: document.querySelector("#stat-done"),
+  statDex: document.querySelector("#stat-dex"),
+  statBronze: document.querySelector("#stat-bronze"),
+  statSilver: document.querySelector("#stat-silver"),
   statGold: document.querySelector("#stat-gold"),
-  statTotal: document.querySelector("#stat-total"),
+  statFollowers: document.querySelector("#stat-followers"),
+  statFollowing: document.querySelector("#stat-following"),
   loginForm: document.querySelector("#login-form"),
   registerForm: document.querySelector("#register-form"),
   editForm: document.querySelector("#edit-form"),
@@ -63,13 +74,21 @@ async function init() {
   await initSupabase();
   await loadSession();
   await loadDisciplines();
+  await loadUsers();
   await loadProfileAndStats();
   finishAuthRestore();
   renderDex();
+  renderUserSearch();
   renderProfile();
 }
 
 function bindUi() {
+  setActiveNavIndicator(2);
+  window.addEventListener("resize", () => {
+    const activeIndex = [...els.nav].findIndex((button) => button.classList.contains("is-active"));
+    setActiveNavIndicator(activeIndex < 0 ? 0 : activeIndex);
+  });
+
   els.nav.forEach((button) => {
     button.addEventListener("click", () => showView(button.dataset.view));
   });
@@ -77,6 +96,19 @@ function bindUi() {
   els.search.addEventListener("input", () => {
     state.filters.search = els.search.value.trim().toLowerCase();
     renderDex();
+  });
+  els.dexFilter.addEventListener("submit", (event) => {
+    event.preventDefault();
+    els.search.blur();
+  });
+  els.userSearch.addEventListener("input", () => {
+    state.filters.userSearch = els.userSearch.value.trim().toLowerCase();
+    state.expandedUserId = null;
+    renderUserSearch();
+  });
+  els.userSearchForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    els.userSearch.blur();
   });
 
   els.authTabs.forEach((button) => {
@@ -147,15 +179,19 @@ async function handleAuthStateChange(event, session) {
   state.session = session;
   if (event === "SIGNED_OUT") {
     clearPersonalState();
+    await loadUsers();
     finishAuthRestore();
     renderDex();
+    renderUserSearch();
     renderProfile();
     showAuthPane("login");
     return;
   }
+  await loadUsers();
   await loadProfileAndStats();
   finishAuthRestore();
   renderDex();
+  renderUserSearch();
   renderProfile();
 }
 
@@ -184,6 +220,27 @@ async function loadDisciplines() {
   }
 
   state.disciplines = data ?? [];
+}
+
+async function loadUsers() {
+  state.users = [];
+  if (!state.connected) {
+    setUserSearchState("Demo-Modus: Nutzersuche ist erst mit Supabase-Verbindung verfuegbar.");
+    return;
+  }
+
+  const { data, error } = await state.supabase
+    .from("oeffentliche_profile")
+    .select("id, nutzername, rank")
+    .order("nutzername", { ascending: true });
+
+  if (error) {
+    setUserSearchState(`Nutzer konnten nicht geladen werden: ${error.message}`, "error");
+    return;
+  }
+
+  state.users = data ?? [];
+  hideState(els.userSearchState);
 }
 
 async function loadProfileAndStats() {
@@ -238,6 +295,96 @@ function matchesFilters(discipline) {
   return !query || discipline.name.toLowerCase().includes(query);
 }
 
+function renderUserSearch() {
+  const query = state.filters.userSearch;
+  const currentUserId = state.session?.user?.id ?? "";
+  const otherUsers = state.users.filter((user) => user.id !== currentUserId);
+  const users = otherUsers.filter((user) => matchesUserSearch(user, query));
+  if (state.expandedUserId && !users.some((user) => user.id === state.expandedUserId)) {
+    state.expandedUserId = null;
+  }
+
+  els.userList.innerHTML = "";
+
+  if (!state.connected) {
+    setUserSearchState("Demo-Modus: Nutzersuche ist erst mit Supabase-Verbindung verfuegbar.");
+    return;
+  }
+
+  if (!otherUsers.length) {
+    setUserSearchState("Noch keine anderen Nutzer gefunden.");
+    return;
+  }
+
+  if (!users.length) {
+    setUserSearchState("Kein Nutzer passt zu dieser Suche.");
+    return;
+  }
+
+  hideState(els.userSearchState);
+  const fragment = document.createDocumentFragment();
+  users.forEach((user) => fragment.append(renderUserCard(user)));
+  els.userList.append(fragment);
+}
+
+function matchesUserSearch(user, query) {
+  if (!query) return true;
+  return [
+    user.nutzername,
+    user.vorname,
+    user.nachname
+  ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
+}
+
+function renderUserCard(user) {
+  const isExpanded = state.expandedUserId === user.id;
+  const stats = publicUserStats(user);
+  const article = document.createElement("article");
+  article.className = `user-card${isExpanded ? " is-expanded" : ""}`;
+  article.innerHTML = `
+    <button class="user-card-toggle" type="button" aria-expanded="${isExpanded}" aria-label="Profil von @${escapeHtml(user.nutzername ?? "nutzer")} ${isExpanded ? "einklappen" : "ausklappen"}">
+      <div class="avatar small-avatar">${escapeHtml(initials(user))}</div>
+      <div>
+        <h3>@${escapeHtml(user.nutzername ?? "nutzer")}</h3>
+      </div>
+      <div class="user-card-action">
+        <span class="rank-label ${escapeHtml(rankClass(user.rank))}">${escapeHtml(rankLabel(user.rank))}</span>
+      </div>
+    </button>
+    ${isExpanded ? `
+      <div class="user-card-details">
+        <div class="profile-metrics user-card-metrics" aria-label="Profilzahlen">
+          <span><strong>${stats.dex}</strong> Dex</span>
+          <span><strong>${stats.followers}</strong> Follower</span>
+          <span><strong>${stats.following}</strong> Gefolgt</span>
+        </div>
+        <div class="user-card-medals" aria-label="Medaillen">
+          <span class="stat-card stat-bronze"><strong>${stats.bronze}</strong><span>Bronze</span></span>
+          <span class="stat-card stat-silver"><strong>${stats.silver}</strong><span>Silber</span></span>
+          <span class="stat-card stat-gold"><strong>${stats.gold}</strong><span>Gold</span></span>
+        </div>
+        <button class="follow-button" type="button">Follow</button>
+      </div>
+    ` : ""}
+  `;
+  article.querySelector(".user-card-toggle").addEventListener("click", () => {
+    state.expandedUserId = isExpanded ? null : user.id;
+    renderUserSearch();
+  });
+  return article;
+}
+
+function publicUserStats(user) {
+  return {
+    dex: user.dex ?? 0,
+    followers: user.followers ?? 0,
+    following: user.following ?? 0,
+    bronze: user.bronze ?? 0,
+    silver: user.silver ?? 0,
+    gold: user.gold ?? 0
+  };
+}
+
 function renderDisciplineCard(discipline) {
   const article = document.createElement("article");
   article.className = "discipline-card";
@@ -290,19 +437,24 @@ function renderProfile() {
 
   if (profile) {
     els.profileTitle.textContent = `@${profile.nutzername}`;
-    els.profileRank.textContent = `Rank ${profile.rank ?? 1}`;
+    els.profileRank.textContent = rankLabel(profile.rank);
+    els.profileRank.className = `eyebrow rank-label ${rankClass(profile.rank)}`;
     els.profileAvatar.textContent = initials(profile);
     fillEditForm(profile);
   } else {
     els.profileTitle.textContent = isSignedIn ? "Profil wird vorbereitet" : "Nicht angemeldet";
-    els.profileRank.textContent = "Rank 1";
+    els.profileRank.textContent = "Sportler";
+    els.profileRank.className = "eyebrow rank-label rank-sportler";
     els.profileAvatar.textContent = "SD";
   }
 
   const medals = [...state.achievements.values()];
-  els.statDone.textContent = String(state.achievements.size);
+  els.statDex.textContent = String(state.achievements.size);
+  els.statBronze.textContent = String(medals.filter((medal) => medal === "bronze").length);
+  els.statSilver.textContent = String(medals.filter((medal) => medal === "silber").length);
   els.statGold.textContent = String(medals.filter((medal) => medal === "gold").length);
-  els.statTotal.textContent = String(medals.length);
+  els.statFollowers.textContent = "0";
+  els.statFollowing.textContent = "0";
 
   if (state.authRestoring) {
     return;
@@ -366,6 +518,8 @@ async function handleProfileSave(event) {
   const { data, error } = await state.supabase.from("nutzer").upsert(payload).select("*").single();
   if (error) return setProfileState(error.message, "error");
   state.profile = data;
+  await loadUsers();
+  renderUserSearch();
   renderProfile();
   setProfileState("Profil gespeichert.", "success");
 }
@@ -395,8 +549,22 @@ function clearPersonalData() {
 function showView(viewName) {
   state.activeView = viewName;
   els.views.forEach((view) => view.classList.toggle("is-active", view.id === `view-${viewName}`));
-  els.nav.forEach((button) => button.classList.toggle("is-active", button.dataset.view === viewName));
+  els.nav.forEach((button, index) => {
+    const isActive = button.dataset.view === viewName;
+    button.classList.toggle("is-active", isActive);
+    if (isActive) {
+      setActiveNavIndicator(index);
+    }
+  });
   document.querySelector("#app").focus({ preventScroll: true });
+}
+
+function setActiveNavIndicator(index) {
+  const nav = els.nav[0]?.parentElement;
+  const button = els.nav[index];
+  if (!nav || !button) return;
+  nav.style.setProperty("--active-x", `${button.offsetLeft}px`);
+  nav.style.setProperty("--active-width", `${button.offsetWidth}px`);
 }
 
 function showAuthPane(tabName) {
@@ -422,6 +590,10 @@ function setProfileState(message, type = "") {
   setStateBox(els.profileState, message, type);
 }
 
+function setUserSearchState(message, type = "") {
+  setStateBox(els.userSearchState, message, type);
+}
+
 function setStateBox(element, message, type) {
   element.hidden = false;
   element.textContent = message;
@@ -442,6 +614,16 @@ function bestMedal(a = "keine", b = "keine") {
 function medalLabel(value) {
   const labels = { offen: "offen", keine: "keine Medaille", unbewertet: "unbewertet", bronze: "Bronze", silber: "Silber", gold: "Gold" };
   return labels[value] ?? "offen";
+}
+
+function rankLabel(value) {
+  const rank = Number(value ?? 1);
+  return rank <= 1 ? "Sportler" : `Rank ${rank}`;
+}
+
+function rankClass(value) {
+  const rank = Number(value ?? 1);
+  return rank <= 1 ? "rank-sportler" : "";
 }
 
 function initials(profile) {

@@ -103,6 +103,14 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
+.rank-label {
+  color: var(--color-muted);
+}
+
+.rank-sportler {
+  color: var(--color-rank-sportler);
+}
+
 .sync-pill {
   flex: 0 0 auto;
   max-width: 42vw;
@@ -130,33 +138,15 @@ textarea:focus-visible {
   display: block;
 }
 
-.dex-hero {
-  padding: 18px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius);
-  background: var(--color-card);
-  box-shadow: var(--shadow);
-}
-
-.dex-hero h2 {
-  max-width: 13ch;
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.dex-hero p {
-  margin: 10px 0 0;
-  color: var(--color-muted);
-  line-height: 1.45;
-}
-
 .dex-search {
   margin-top: 16px;
 }
 
+.dex-hero,
 .filter-panel,
 .form-stack,
 .profile-card,
+.search-panel,
 .stats-row,
 .empty-panel,
 .feed-skeleton {
@@ -165,6 +155,10 @@ textarea:focus-visible {
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
   background: var(--color-card);
+}
+
+.dex-hero {
+  box-shadow: var(--shadow);
 }
 
 .view > :first-child {
@@ -299,16 +293,16 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
-  max-width: 100px;
+  gap: 7px;
+  max-width: 112px;
 }
 
 .sport-icon {
-  flex: 0 0 32px;
+  flex: 0 0 36px;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--color-line);
   border-radius: 50%;
   background: var(--color-input);
@@ -316,8 +310,8 @@ button:disabled {
 }
 
 .sport-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
   fill: currentColor;
 }
 
@@ -383,6 +377,28 @@ button:disabled {
   align-items: center;
 }
 
+.profile-card > div:last-child {
+  min-width: 0;
+}
+
+.dex-hero h2,
+.search-panel h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+
+.dex-hero p,
+.search-panel p {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.user-search {
+  margin-top: 14px;
+}
+
 .avatar,
 .empty-icon {
   display: grid;
@@ -398,9 +414,30 @@ button:disabled {
   height: 64px;
 }
 
-.profile-card p {
-  margin: 4px 0 0;
+.small-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 0.9rem;
+}
+
+.profile-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 6px;
   color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.profile-metrics span {
+  white-space: nowrap;
+}
+
+.profile-metrics strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .stats-row {
@@ -410,8 +447,9 @@ button:disabled {
   text-align: center;
 }
 
-.stats-row div {
+.stat-card {
   padding: 10px 6px;
+  border: 1px solid transparent;
   border-radius: var(--radius);
   background: var(--color-soft-panel);
 }
@@ -425,6 +463,30 @@ button:disabled {
   margin-top: 3px;
   color: var(--color-muted);
   font-size: 0.75rem;
+}
+
+.stat-bronze {
+  border-color: color-mix(in srgb, var(--color-bronze), transparent 35%);
+}
+
+.stat-bronze strong {
+  color: var(--color-bronze);
+}
+
+.stat-silver {
+  border-color: color-mix(in srgb, var(--color-silver), transparent 30%);
+}
+
+.stat-silver strong {
+  color: var(--color-silver);
+}
+
+.stat-gold {
+  border-color: color-mix(in srgb, var(--color-gold), transparent 25%);
+}
+
+.stat-gold strong {
+  color: var(--color-gold);
 }
 
 .auth-tabs {
@@ -511,22 +573,121 @@ button:disabled {
   height: 16px;
 }
 
+.user-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.user-card {
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-card);
+}
+
+.user-card-toggle {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.user-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.user-card .rank-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.user-card-action {
+  display: inline-flex;
+  align-items: center;
+}
+
+.user-card-details {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+
+.user-card-metrics {
+  margin-top: 0;
+}
+
+.user-card-medals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  text-align: center;
+}
+
+.user-card-medals .stat-card strong,
+.user-card-medals .stat-card span {
+  display: block;
+}
+
+.user-card-medals .stat-card span {
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+}
+
+.follow-button {
+  justify-self: stretch;
+  min-height: 40px;
+  background: var(--color-action);
+}
+
 .bottom-nav {
+  --active-x: 0px;
+  --active-width: 0px;
+  --nav-gap: 4px;
+  --nav-pad-x: 8px;
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--nav-gap);
+  padding: 8px var(--nav-pad-x) calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--color-line);
   background: var(--color-bg);
   backdrop-filter: blur(18px);
 }
 
+.bottom-nav::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 0;
+  width: var(--active-width);
+  height: 56px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: var(--color-primary);
+  transform: translateX(var(--active-x));
+  transition: transform 220ms ease;
+}
+
 .bottom-nav button {
+  position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
   gap: 3px;
@@ -539,8 +700,6 @@ button:disabled {
 }
 
 .bottom-nav button.is-active {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
   color: var(--color-text);
 }
 
@@ -550,8 +709,12 @@ button:disabled {
   fill: currentColor;
 }
 
+.bottom-nav svg[stroke] {
+  fill: none;
+}
+
 .bottom-nav span {
-  font-size: 0.74rem;
+  font-size: 0.66rem;
   font-weight: 850;
 }
 
@@ -562,11 +725,6 @@ button:disabled {
 
   .dex-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dex-hero h2 {
-    max-width: none;
-    font-size: 2.5rem;
   }
 
   .result-row {
@@ -586,8 +744,26 @@ button:disabled {
   }
 
   .bottom-nav {
-    gap: 2px;
-    padding-inline: 6px;
+    --nav-gap: 2px;
+    --nav-pad-x: 4px;
+  }
+
+  .bottom-nav button {
+    min-height: 54px;
+    padding-inline: 2px;
+  }
+
+  .bottom-nav::before {
+    height: 54px;
+  }
+
+  .bottom-nav svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .bottom-nav span {
+    font-size: 0.6rem;
   }
 }
 

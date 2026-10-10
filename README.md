@@ -1,6 +1,6 @@
 # Sportdex
 
-Mobiles Grundgeruest fuer eine Sportplattform nach Dex-Prinzip. Der Dex ist die Startansicht und zeigt alle 36 Disziplinen aus Generation 1. Feed ist bewusst nur ein Platzhalter, Profil ist fuer Supabase Auth und die Tabelle `nutzer` vorbereitet.
+Mobiles Grundgeruest fuer eine Sportplattform nach Dex-Prinzip. Der Dex ist die Startansicht und zeigt alle 36 Disziplinen aus Generation 1. Feed und Connect sind bewusst nur Platzhalter, Profil ist fuer Supabase Auth und die Tabelle `nutzer` vorbereitet.
 
 ## Lokaler Start
 
@@ -54,11 +54,11 @@ Grenzwerte, Quellen, offene Fragen und DSA-Abweichungen stehen in `docs/diszipli
 
 Funktioniert:
 
-- Bottom-Bar: Feed, Dex, Profil.
+- Bottom-Bar: Feed, Suche, Dex, Connect, Profil.
 - Dex als Startansicht.
 - 36 sichtbare Disziplinen.
 - Suche nach Name.
-- Filter nach Kategorie, Generation und nur DSA.
+- Suche nach anderen Profilen aus der Tabelle `nutzer`.
 - Zaehler fuer sichtbare und gesamte Disziplinen.
 - Lade-, Fehler- und Leerzustaende.
 - Supabase Auth: Registrierung, Anmeldung, Abmeldung.
@@ -70,5 +70,6 @@ Noch nicht enthalten:
 - Disziplin-Detailansicht.
 - Leistungseingabe im Frontend.
 - Feed mit echten Beitraegen.
+- Connect mit echten Community-Funktionen.
 - Profilbild-Upload und Storage.
 - Automatische Rangberechnung.
