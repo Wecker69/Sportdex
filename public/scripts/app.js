@@ -989,10 +989,12 @@ function renderDisciplineCard(discipline) {
           <div class="dex-no">#${String(discipline.sortierung).padStart(3, "0")}</div>
           <h3>${escapeHtml(discipline.name)}</h3>
         </div>
-        <div class="icon-row" aria-label="Kategoriezeichen">${icons}</div>
+        <div class="card-icons">
+          <div class="icon-row" aria-label="Kategoriezeichen">${icons}</div>
+          ${hintIcons ? `<div class="icon-row hint-icon-row" aria-label="Disziplinhinweise">${hintIcons}</div>` : ""}
+        </div>
       </div>
       ${renderMedalProgress(medal)}
-      ${hintIcons ? `<div class="status-row" aria-label="Disziplinhinweise">${hintIcons}</div>` : ""}
     </button>
     ${isExpanded ? renderDisciplineDetails(discipline) : ""}
   `;
@@ -1084,10 +1086,14 @@ function renderRequirements(discipline) {
 function renderEffortRow(effort, discipline) {
   return `
     <div class="effort-row">
-      <strong>${escapeHtml(formatEffortValue(effort.wert, discipline))}</strong>
-      <span>${escapeHtml(medalLabel(effort.medaille))}</span>
-      <time datetime="${escapeHtml(effort.geleistet_am ?? effort.erstellt_am)}">${escapeHtml(formatDateOnly(effort.geleistet_am ?? effort.erstellt_am))}</time>
-      <button class="ghost-button compact-button" type="button" data-effort-action="edit" data-effort-id="${escapeHtml(effort.id)}">Bearbeiten</button>
+      <div class="effort-row-head">
+        <strong>${escapeHtml(formatEffortValue(effort.wert, discipline))}</strong>
+        <button class="ghost-button compact-button" type="button" data-effort-action="edit" data-effort-id="${escapeHtml(effort.id)}">Bearbeiten</button>
+      </div>
+      <div class="effort-row-meta">
+        <span>${escapeHtml(medalLabel(effort.medaille))}</span>
+        <time datetime="${escapeHtml(effort.geleistet_am ?? effort.erstellt_am)}">${escapeHtml(formatDateOnly(effort.geleistet_am ?? effort.erstellt_am))}</time>
+      </div>
     </div>
   `;
 }
@@ -1617,10 +1623,11 @@ function renderProfile() {
   }
 
   const medals = [...state.achievements.values()];
+  const medalCounts = cumulativeMedalCounts(medals);
   els.statDex.textContent = String(state.achievements.size);
-  els.statBronze.textContent = String(medals.filter((medal) => medal === "bronze").length);
-  els.statSilver.textContent = String(medals.filter((medal) => medal === "silber").length);
-  els.statGold.textContent = String(medals.filter((medal) => medal === "gold").length);
+  els.statBronze.textContent = String(medalCounts.bronze);
+  els.statSilver.textContent = String(medalCounts.silver);
+  els.statGold.textContent = String(medalCounts.gold);
   const ownCounts = ownFollowCounts();
   els.statFollowers.textContent = String(ownCounts.followers);
   els.statFollowing.textContent = String(ownCounts.following);
@@ -2171,6 +2178,14 @@ function bestMedal(a = "keine", b = "keine") {
 
 function bestMedalForEfforts(efforts) {
   return efforts.reduce((best, effort) => bestMedal(best, effort.medaille), "keine");
+}
+
+function cumulativeMedalCounts(medals) {
+  return {
+    bronze: medals.filter((medal) => ["bronze", "silber", "gold"].includes(medal)).length,
+    silver: medals.filter((medal) => ["silber", "gold"].includes(medal)).length,
+    gold: medals.filter((medal) => medal === "gold").length
+  };
 }
 
 function medalLabel(value) {

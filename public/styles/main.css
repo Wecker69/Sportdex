@@ -322,6 +322,12 @@ button:disabled {
   line-height: 1.2;
 }
 
+.card-icons {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
 .icon-row {
   flex: 0 0 auto;
   display: flex;
@@ -329,6 +335,21 @@ button:disabled {
   justify-content: flex-end;
   gap: 7px;
   max-width: 112px;
+}
+
+.hint-icon-row {
+  gap: 6px;
+}
+
+.hint-icon-row .sport-icon {
+  flex-basis: 30px;
+  width: 30px;
+  height: 30px;
+}
+
+.hint-icon-row .sport-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .sport-icon {
@@ -736,9 +757,28 @@ button:disabled {
 }
 
 .effort-row {
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
   font-size: 0.82rem;
+}
+
+.effort-row-head,
+.effort-row-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.effort-row-head strong {
+  min-width: 0;
+}
+
+.effort-row-head button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 0.74rem;
 }
 
 .effort-edit-panel {
@@ -1424,15 +1464,6 @@ button:disabled {
 
   .bottom-nav span {
     font-size: 0.6rem;
-  }
-
-  .effort-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .effort-row time,
-  .effort-row button {
-    grid-column: 1 / -1;
   }
 
   .feed-author {
