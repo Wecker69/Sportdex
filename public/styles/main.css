@@ -343,6 +343,14 @@ button:disabled {
   color: var(--icon-color, var(--color-primary));
 }
 
+.dsa-icon {
+  --icon-color: var(--color-gold);
+}
+
+.warning-icon {
+  --icon-color: var(--color-error);
+}
+
 .sport-icon svg {
   width: 21px;
   height: 21px;
@@ -357,8 +365,7 @@ button:disabled {
 }
 
 .medal,
-.status,
-.dsa-badge {
+.status {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -386,7 +393,7 @@ button:disabled {
   border-color: color-mix(in srgb, var(--color-bronze), transparent 45%);
 }
 
-.medal.silver {
+.medal.silber {
   border-color: color-mix(in srgb, var(--color-silver), transparent 45%);
 }
 
@@ -404,7 +411,7 @@ button:disabled {
   color: var(--color-bg);
 }
 
-.medal.silver.is-earned {
+.medal.silber.is-earned {
   border-color: var(--color-silver);
   background: var(--color-silver);
   color: var(--color-bg);
@@ -416,6 +423,14 @@ button:disabled {
   color: var(--color-bg);
 }
 
+.medal.bronze.is-current {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-bronze), transparent 55%);
+}
+
+.medal.silber.is-current {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-silver), transparent 55%);
+}
+
 .medal.gold.is-current {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-gold), transparent 55%);
 }
@@ -424,12 +439,6 @@ button:disabled {
 .status {
   background: var(--color-soft-panel);
   color: var(--color-muted);
-}
-
-.dsa-badge {
-  border: 1px solid var(--color-gold);
-  background: var(--color-soft-panel);
-  color: var(--color-gold);
 }
 
 .profile-card {
@@ -727,9 +736,16 @@ button:disabled {
 }
 
 .effort-row {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   font-size: 0.82rem;
+}
+
+.effort-edit-panel {
+  padding: 10px;
+  border: 1px solid var(--color-primary-line);
+  border-radius: var(--radius);
+  background: var(--color-soft-panel);
 }
 
 .effort-row span,
@@ -750,6 +766,17 @@ button:disabled {
   gap: 8px;
 }
 
+.edit-actions {
+  grid-template-columns: repeat(var(--edit-action-count, 3), minmax(0, 1fr));
+}
+
+.edit-actions button {
+  min-height: 32px;
+  padding: 5px 6px;
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
 .share-toggle {
   display: flex;
   grid-template-columns: none;
@@ -760,14 +787,6 @@ button:disabled {
 .share-toggle input {
   width: auto;
   min-height: auto;
-}
-
-.image-placeholder {
-  padding: 12px;
-  border: 1px dashed var(--color-line);
-  border-radius: var(--radius);
-  color: var(--color-muted);
-  text-align: center;
 }
 
 .compact-button {
@@ -802,18 +821,45 @@ button:disabled {
   width: min(100%, 640px);
   margin: 0 auto;
   padding: 0 0 12px;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--medal-line, var(--color-line));
   border-radius: var(--radius);
-  background: var(--color-card);
+  background:
+    linear-gradient(135deg, var(--medal-soft, transparent), transparent 42%),
+    var(--color-card);
   overflow: hidden;
+}
+
+.feed-card.medal-bronze {
+  --medal-color: var(--color-bronze);
+  --medal-line: color-mix(in srgb, var(--color-bronze), transparent 54%);
+  --medal-soft: color-mix(in srgb, var(--color-bronze), transparent 92%);
+}
+
+.feed-card.medal-silber {
+  --medal-color: var(--color-silver);
+  --medal-line: color-mix(in srgb, var(--color-silver), transparent 56%);
+  --medal-soft: color-mix(in srgb, var(--color-silver), transparent 93%);
+}
+
+.feed-card.medal-gold {
+  --medal-color: var(--color-gold);
+  --medal-line: color-mix(in srgb, var(--color-gold), transparent 50%);
+  --medal-soft: color-mix(in srgb, var(--color-gold), transparent 91%);
 }
 
 .feed-author {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 12px 12px 0;
+}
+
+.feed-edit-button {
+  justify-self: end;
+  margin: 0;
+  min-height: 28px;
+  font-size: 0.72rem;
 }
 
 .feed-author h3 {
@@ -822,15 +868,31 @@ button:disabled {
 
 .feed-author time,
 .feed-text,
-.feed-meta,
 .feed-end {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.78rem;
 }
 
+.feed-meta-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.feed-meta-icons .sport-icon {
+  flex-basis: 28px;
+  width: 28px;
+  height: 28px;
+}
+
+.feed-meta-icons .sport-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
 .feed-media {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   gap: 8px;
@@ -860,15 +922,21 @@ button:disabled {
   font-weight: 850;
 }
 
+.feed-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--color-input);
+}
+
 .feed-performance {
   margin: 0 12px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  border-color: var(--medal-line, var(--color-line));
+  background: color-mix(in srgb, var(--medal-color, var(--color-text)), transparent 92%);
 }
 
 .feed-discipline,
-.feed-medal {
+.feed-date {
   color: var(--color-muted);
   font-size: 0.82rem;
   font-weight: 850;
@@ -879,16 +947,16 @@ button:disabled {
   line-height: 1.1;
 }
 
-.feed-medal.bronze {
-  color: var(--color-bronze);
+.feed-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
-.feed-medal.silber {
-  color: var(--color-silver);
-}
-
-.feed-medal.gold {
-  color: var(--color-gold);
+.feed-medal {
+  min-height: 28px;
+  font-size: 0.76rem;
 }
 
 .feed-text {
@@ -1356,6 +1424,24 @@ button:disabled {
 
   .bottom-nav span {
     font-size: 0.6rem;
+  }
+
+  .effort-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .effort-row time,
+  .effort-row button {
+    grid-column: 1 / -1;
+  }
+
+  .feed-author {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .feed-edit-button {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }
 

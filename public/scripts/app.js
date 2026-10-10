@@ -12,10 +12,12 @@ const state = {
   expandedUserId: null,
   expandedDisciplineId: "",
   activeEntryDisciplineId: "",
+  activeEditEffortId: "",
   effortByDiscipline: new Map(),
   effortVisibleCounts: new Map(),
   pendingEffortIds: new Set(),
   effortMessages: new Map(),
+  effortDrafts: new Map(),
   feedPosts: [],
   feedOffset: 0,
   feedHasMore: true,
@@ -23,6 +25,10 @@ const state = {
   feedError: "",
   feedNeedsRefresh: true,
   expandedFeedTextIds: new Set(),
+  pendingPostIds: new Set(),
+  feedPullStartY: null,
+  feedPullDistance: 0,
+  feedWheelPull: 0,
   outgoingFollows: new Map(),
   incomingFollows: new Map(),
   incomingRequests: [],
@@ -62,7 +68,6 @@ const els = {
   feedState: document.querySelector("#feed-state"),
   feedList: document.querySelector("#feed-list"),
   feedMore: document.querySelector("#feed-more"),
-  feedRefresh: document.querySelector("#feed-refresh"),
   userSearchForm: document.querySelector("#user-search-form"),
   userSearch: document.querySelector("#user-search-input"),
   userSearchState: document.querySelector("#user-search-state"),
@@ -182,15 +187,59 @@ function bindUi() {
   els.feedMore.addEventListener("click", () => {
     void loadFeed(false);
   });
-  els.feedRefresh.addEventListener("click", () => {
-    void loadFeed(true);
-  });
+  bindFeedPullRefresh();
   window.addEventListener("scroll", () => {
     if (state.activeView !== "feed" || state.feedLoading || !state.feedHasMore || state.feedError) return;
     if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 360) {
       void loadFeed(false);
     }
   }, { passive: true });
+}
+
+function bindFeedPullRefresh() {
+  window.addEventListener("touchstart", (event) => {
+    if (!canStartFeedPull()) return;
+    state.feedPullStartY = event.touches[0]?.clientY ?? null;
+    state.feedPullDistance = 0;
+  }, { passive: true });
+
+  window.addEventListener("touchmove", (event) => {
+    if (state.feedPullStartY == null || !canStartFeedPull()) return;
+    const y = event.touches[0]?.clientY ?? state.feedPullStartY;
+    state.feedPullDistance = Math.max(0, y - state.feedPullStartY);
+  }, { passive: true });
+
+  window.addEventListener("touchend", () => {
+    if (state.feedPullStartY == null) return;
+    const shouldRefresh = state.feedPullDistance >= 74;
+    state.feedPullStartY = null;
+    state.feedPullDistance = 0;
+    if (shouldRefresh) {
+      void loadFeed(true);
+    }
+  });
+
+  window.addEventListener("wheel", (event) => {
+    if (!canStartFeedPull() || event.deltaY >= 0) {
+      state.feedWheelPull = 0;
+      return;
+    }
+    state.feedWheelPull = Math.min(120, state.feedWheelPull + Math.abs(event.deltaY));
+    state.feedPullDistance = state.feedWheelPull;
+    if (state.feedWheelPull >= 90) {
+      state.feedWheelPull = 0;
+      state.feedPullDistance = 0;
+      void loadFeed(true);
+    }
+  }, { passive: true });
+}
+
+function canStartFeedPull() {
+  return state.activeView === "feed"
+    && window.scrollY <= 0
+    && state.connected
+    && Boolean(state.session?.user)
+    && !state.feedLoading;
 }
 
 async function initSupabase() {
@@ -379,16 +428,19 @@ async function loadProfileAndStats() {
   }
 
   const userId = state.session.user.id;
-  const [{ data: profile, error: profileError }, { data: efforts, error: effortsError }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: efforts, error: effortsError }, { data: posts, error: postsError }] = await Promise.all([
     state.supabase.from("nutzer").select("*").eq("id", userId).maybeSingle(),
     state.supabase
       .from("leistung")
-      .select("id, disziplin_id, wert, medaille, erstellt_am")
+      .select("id, disziplin_id, wert, medaille, erstellt_am, geleistet_am")
       .eq("nutzer_id", userId)
-      .order("erstellt_am", { ascending: false })
+      .order("erstellt_am", { ascending: false }),
+    state.supabase
+      .from("beitrag")
+      .select("id, leistung_id, text")
   ]);
 
-  if (profileError || effortsError) {
+  if (profileError || effortsError || postsError) {
     state.profileLoadError = "Profildaten konnten gerade nicht geladen werden. Die Anmeldung bleibt erhalten.";
     return;
   }
@@ -396,12 +448,19 @@ async function loadProfileAndStats() {
   state.profile = profile ?? null;
   state.achievements = new Map();
   state.effortByDiscipline = new Map();
+  const postsByEffort = new Map((posts ?? []).map((post) => [post.leistung_id, post]));
   (efforts ?? []).forEach((effort) => {
-    const current = state.achievements.get(effort.disziplin_id);
-    state.achievements.set(effort.disziplin_id, bestMedal(current, effort.medaille));
-    const list = state.effortByDiscipline.get(effort.disziplin_id) ?? [];
-    list.push(effort);
-    state.effortByDiscipline.set(effort.disziplin_id, list);
+    const post = postsByEffort.get(effort.id);
+    const normalized = normalizeEffort({
+      ...effort,
+      beitrag_id: post?.id ?? null,
+      beitrag_text: post?.text ?? ""
+    });
+    const current = state.achievements.get(normalized.disziplin_id);
+    state.achievements.set(normalized.disziplin_id, bestMedal(current, normalized.medaille));
+    const list = state.effortByDiscipline.get(normalized.disziplin_id) ?? [];
+    list.push(normalized);
+    state.effortByDiscipline.set(normalized.disziplin_id, list);
   });
 }
 
@@ -539,7 +598,6 @@ function renderUserSearch() {
 function renderFeed() {
   els.feedList.innerHTML = "";
   els.feedMore.hidden = true;
-  els.feedRefresh.disabled = state.feedLoading;
 
   if (!state.connected) {
     setFeedState("Demo-Modus: Der Feed ist erst mit Supabase-Verbindung verfuegbar.");
@@ -585,9 +643,19 @@ function renderFeed() {
   els.feedMore.textContent = state.feedLoading ? "Laedt ..." : "Mehr laden";
 }
 
+function normalizeEffort(effort) {
+  const beitrag = Array.isArray(effort.beitrag) ? effort.beitrag[0] : effort.beitrag;
+  return {
+    ...effort,
+    beitrag_id: effort.beitrag_id ?? beitrag?.id ?? null,
+    beitrag_text: effort.beitrag_text ?? beitrag?.text ?? "",
+    geleistet_am: effort.geleistet_am ?? toDateInputValue(effort.erstellt_am)
+  };
+}
+
 function renderFeedCard(post) {
   const article = document.createElement("article");
-  article.className = "feed-card";
+  article.className = `feed-card medal-${medalCssClass(post.medaille)}`;
   const discipline = state.disciplines.find((item) => item.id === post.disziplin_id) ?? {
     id: post.disziplin_id,
     einheit: post.einheit,
@@ -602,6 +670,8 @@ function renderFeedCard(post) {
   const isLong = text.length > 180;
   const isExpanded = state.expandedFeedTextIds.has(post.beitrag_id);
   const displayText = isLong && !isExpanded ? `${text.slice(0, 180).trim()}...` : text;
+  const disciplineImage = disciplineImageUrl(post.disziplin_id);
+  const canEdit = post.autor_id === state.session?.user?.id;
   article.innerHTML = `
     <div class="feed-author">
       <div class="avatar small-avatar">${escapeHtml(initials(post))}</div>
@@ -609,22 +679,33 @@ function renderFeedCard(post) {
         <h3>@${escapeHtml(post.nutzername ?? "nutzer")}</h3>
         <time datetime="${escapeHtml(post.beitrag_erstellt_am)}">${escapeHtml(formatDate(post.beitrag_erstellt_am))}</time>
       </div>
+      ${canEdit ? `<button class="text-button feed-edit-button" type="button" data-feed-edit="${escapeHtml(post.leistung_id)}">Bearbeiten</button>` : ""}
     </div>
-    <div class="feed-media" aria-label="Bildplatzhalter">
-      <div class="feed-media-icon">${iconFor(discipline.kategorie_1)}</div>
-      <span>Bildplatzhalter</span>
+    <div class="feed-media" aria-label="Disziplinbild">
+      ${disciplineImage
+        ? `<img src="${escapeHtml(disciplineImage)}" alt="Disziplinbild zu ${escapeHtml(post.disziplin_name)}" loading="lazy" decoding="async" data-feed-image>`
+        : feedImageFallback(discipline)}
     </div>
     <div class="feed-performance">
       <span class="feed-discipline">${escapeHtml(post.disziplin_name)}</span>
       <strong>${escapeHtml(formatFeedEffortValue(post.wert, discipline))}</strong>
-      <span class="feed-medal ${escapeHtml(post.medaille ?? "unbewertet")}">${escapeHtml(medalLabel(post.medaille))}</span>
-      <span class="feed-meta">${escapeHtml([discipline.kategorie_1, discipline.kategorie_2, discipline.dsa ? "DSA" : ""].filter(Boolean).join(" - "))}</span>
+      <time class="feed-date" datetime="${escapeHtml(post.geleistet_am ?? post.beitrag_erstellt_am)}">${escapeHtml(formatDateOnly(post.geleistet_am ?? post.beitrag_erstellt_am))}</time>
+      <div class="feed-meta-row">
+        <span class="medal feed-medal ${escapeHtml(post.medaille ?? "unbewertet")} is-earned">${escapeHtml(medalSymbol(post.medaille))} ${escapeHtml(medalLabel(post.medaille))}</span>
+        ${renderFeedMetaIcons(discipline)}
+      </div>
     </div>
     ${text ? `
       <p class="feed-text"><strong>@${escapeHtml(post.nutzername ?? "nutzer")}</strong> ${escapeHtml(displayText)}</p>
       ${isLong ? `<button class="text-button" type="button" data-feed-text="${escapeHtml(post.beitrag_id)}">${isExpanded ? "Weniger anzeigen" : "Mehr anzeigen"}</button>` : ""}
     ` : ""}
   `;
+  article.querySelector("[data-feed-image]")?.addEventListener("error", (event) => {
+    const media = event.currentTarget.closest(".feed-media");
+    if (media) {
+      media.innerHTML = feedImageFallback(discipline, "Bild nicht verfuegbar");
+    }
+  });
   article.querySelector("[data-feed-text]")?.addEventListener("click", (event) => {
     const id = event.currentTarget.dataset.feedText;
     if (state.expandedFeedTextIds.has(id)) {
@@ -634,7 +715,111 @@ function renderFeedCard(post) {
     }
     renderFeed();
   });
+  article.querySelector("[data-feed-edit]")?.addEventListener("click", (event) => {
+    void openEffortEditorFromFeed(event.currentTarget.dataset.feedEdit, post.disziplin_id);
+  });
   return article;
+}
+
+async function openEffortEditorFromFeed(effortId, disciplineId) {
+  if (!effortId || !disciplineId) return;
+  state.expandedDisciplineId = disciplineId;
+  state.activeEntryDisciplineId = "";
+  state.activeEditEffortId = effortId;
+  const effort = (state.effortByDiscipline.get(disciplineId) ?? []).find((item) => item.id === effortId);
+  const discipline = state.disciplines.find((item) => item.id === disciplineId);
+  if (effort && discipline) {
+    state.effortDrafts.set(editEffortDraftKey(effortId), effortDraftFromEffort(effort, discipline));
+  }
+  await showView("dex");
+  renderDex();
+}
+
+function disciplineImageUrl(disciplineId) {
+  if (!state.supabase || !disciplineId) return "";
+  return state.supabase.storage
+    .from("disziplinbilder")
+    .getPublicUrl(`${disciplineId}.png`).data.publicUrl;
+}
+
+function feedImageFallback(discipline, text = "Disziplinbild nicht verfuegbar") {
+  return `<div class="feed-media-icon">${iconFor(discipline.kategorie_1)}</div><span>${escapeHtml(text)}</span>`;
+}
+
+function medalCssClass(value) {
+  return ["bronze", "silber", "gold"].includes(value) ? value : "neutral";
+}
+
+function renderFeedMetaIcons(discipline) {
+  const icons = [
+    discipline.kategorie_1 ? renderSportIcon(discipline.kategorie_1) : "",
+    discipline.kategorie_2 ? renderSportIcon(discipline.kategorie_2) : "",
+    discipline.dsa ? renderDsaIcon() : ""
+  ].filter(Boolean).join("");
+  return icons ? `<div class="feed-meta-icons" aria-label="Kategorien">${icons}</div>` : "";
+}
+
+async function deleteContributionPost(postId) {
+  if (!postId || state.pendingPostIds.has(postId)) return;
+  const confirmed = window.confirm("Beitrag wirklich löschen? Die Leistung bleibt erhalten.");
+  if (!confirmed) return;
+
+  state.pendingPostIds.add(postId);
+  renderDex();
+  renderFeed();
+  const { error } = await state.supabase
+    .from("beitrag")
+    .delete()
+    .eq("id", postId);
+  state.pendingPostIds.delete(postId);
+
+  if (error) {
+    state.feedError = `Beitrag konnte nicht geloescht werden: ${error.message}`;
+    renderDex();
+    renderFeed();
+    return;
+  }
+
+  state.feedPosts = state.feedPosts.filter((post) => post.beitrag_id !== postId);
+  await loadProfileAndStats();
+  renderDex();
+  renderFeed();
+  renderProfile();
+}
+
+async function deleteEffort(effort, discipline) {
+  if (!effort?.id) return;
+  const confirmed = window.confirm("Leistung wirklich löschen? Ein verknüpfter Beitrag wird ebenfalls gelöscht.");
+  if (!confirmed) return;
+
+  const pendingKey = deleteEffortPendingKey(effort.id);
+  state.pendingEffortIds.add(pendingKey);
+  renderDex();
+  const { error } = await state.supabase
+    .from("leistung")
+    .delete()
+    .eq("id", effort.id);
+  state.pendingEffortIds.delete(pendingKey);
+
+  if (error) {
+    state.effortMessages.set(discipline.id, { type: "error", text: `Leistung konnte nicht geloescht werden: ${error.message}` });
+    renderDex();
+    return;
+  }
+
+  const list = (state.effortByDiscipline.get(discipline.id) ?? []).filter((item) => item.id !== effort.id);
+  state.effortByDiscipline.set(discipline.id, list);
+  state.achievements.set(discipline.id, bestMedalForEfforts(list));
+  state.activeEditEffortId = "";
+  state.effortDrafts.delete(editEffortDraftKey(effort.id));
+  state.effortMessages.set(discipline.id, { type: "success", text: "Leistung wurde geloescht." });
+  if (effort.beitrag_id) {
+    state.feedPosts = state.feedPosts.filter((post) => post.leistung_id !== effort.id);
+  }
+  await loadProfileAndStats();
+  renderDex();
+  renderFeed();
+  renderProfile();
 }
 
 function renderFeedActionState(message, actions, type = "") {
@@ -794,7 +979,9 @@ function renderDisciplineCard(discipline) {
     renderSportIcon(discipline.kategorie_1),
     discipline.kategorie_2 ? renderSportIcon(discipline.kategorie_2) : ""
   ].join("");
-  const dsaLabel = discipline.dsa ? '<span class="dsa-badge">DSA</span>' : "";
+  const dsaLabel = discipline.dsa ? renderDsaIcon() : "";
+  const boundaryWarning = hasBoundaries(discipline) ? "" : renderWarningIcon("Grenzen fehlen");
+  const hintIcons = [dsaLabel, boundaryWarning].filter(Boolean).join("");
   article.innerHTML = `
     <button class="discipline-toggle" type="button" aria-expanded="${isExpanded}" aria-label="${escapeHtml(discipline.name)} ${isExpanded ? "einklappen" : "ausklappen"}">
       <div class="card-head">
@@ -805,7 +992,7 @@ function renderDisciplineCard(discipline) {
         <div class="icon-row" aria-label="Kategoriezeichen">${icons}</div>
       </div>
       ${renderMedalProgress(medal)}
-      <div class="status-row"><span class="status">Status: ${escapeHtml(cardStatusLabel(discipline))}</span>${dsaLabel}${hasBoundaries(discipline) ? "" : '<span class="status">Grenzen fehlen</span>'}</div>
+      ${hintIcons ? `<div class="status-row" aria-label="Disziplinhinweise">${hintIcons}</div>` : ""}
     </button>
     ${isExpanded ? renderDisciplineDetails(discipline) : ""}
   `;
@@ -819,16 +1006,28 @@ function renderDisciplineCard(discipline) {
       handleDisciplineAction(discipline.id, button.dataset.disciplineAction);
     });
   });
+  article.querySelectorAll("[data-effort-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handleEffortAction(discipline, button.dataset.effortAction, button.dataset.effortId);
+    });
+  });
   article.querySelector(".effort-form")?.addEventListener("submit", (event) => {
     event.stopPropagation();
     void handleEffortSubmit(event, discipline);
   });
+  article.querySelector(".effort-form")?.addEventListener("input", (event) => {
+    if (event.target.type === "file") return;
+    saveEffortDraft(article.querySelector(".effort-form"));
+  });
   article.querySelector("[data-share-toggle]")?.addEventListener("change", (event) => {
     event.stopPropagation();
-    const shareFields = article.querySelector("[data-share-fields]");
+    const form = event.currentTarget.closest(".effort-form");
+    const shareFields = form?.querySelector("[data-share-fields]");
     if (shareFields) shareFields.hidden = !event.currentTarget.checked;
-    const submit = article.querySelector("[data-effort-submit]");
-    if (submit) submit.textContent = event.currentTarget.checked ? "Speichern & teilen" : "Leistung speichern";
+    const submit = form?.querySelector("[data-effort-submit]");
+    if (submit && !form?.dataset.editEffortId) submit.textContent = event.currentTarget.checked ? "Speichern & teilen" : "Leistung speichern";
+    saveEffortDraft(form);
   });
   return article;
 }
@@ -847,10 +1046,6 @@ function renderDisciplineDetails(discipline) {
       <p>${escapeHtml(discipline.beschreibung || "Keine Beschreibung hinterlegt.")}</p>
       <div class="detail-grid">
         <div>
-          <h4>Durchfuehrung</h4>
-          <p>${escapeHtml(discipline.beschreibung || "Keine Durchfuehrungshinweise hinterlegt.")}</p>
-        </div>
-        <div>
           <h4>Anforderungen (${escapeHtml(classHint)})</h4>
           ${renderRequirements(discipline)}
         </div>
@@ -861,7 +1056,11 @@ function renderDisciplineDetails(discipline) {
       </div>
       <div class="effort-list">
         <h4>Beste Leistungen</h4>
-        ${visibleEfforts.length ? visibleEfforts.map((effort) => renderEffortRow(effort, discipline)).join("") : '<p class="request-empty">Noch keine Leistung gespeichert.</p>'}
+        ${visibleEfforts.length ? visibleEfforts.map((effort) => (
+          state.activeEditEffortId === effort.id
+            ? renderEffortEditPanel(effort, discipline)
+            : renderEffortRow(effort, discipline)
+        )).join("") : '<p class="request-empty">Noch keine Leistung gespeichert.</p>'}
         ${efforts.length > 3 ? `<button class="ghost-button compact-button" type="button" data-discipline-action="${visibleCount >= efforts.length ? "less-efforts" : "more-efforts"}">${visibleCount >= efforts.length ? "Weniger anzeigen" : "Alle anzeigen"}</button>` : ""}
       </div>
       ${message ? `<div class="state-box is-${escapeHtml(message.type)}">${escapeHtml(message.text)}</div>` : ""}
@@ -887,39 +1086,55 @@ function renderEffortRow(effort, discipline) {
     <div class="effort-row">
       <strong>${escapeHtml(formatEffortValue(effort.wert, discipline))}</strong>
       <span>${escapeHtml(medalLabel(effort.medaille))}</span>
-      <time datetime="${escapeHtml(effort.erstellt_am)}">${escapeHtml(formatDate(effort.erstellt_am))}</time>
+      <time datetime="${escapeHtml(effort.geleistet_am ?? effort.erstellt_am)}">${escapeHtml(formatDateOnly(effort.geleistet_am ?? effort.erstellt_am))}</time>
+      <button class="ghost-button compact-button" type="button" data-effort-action="edit" data-effort-id="${escapeHtml(effort.id)}">Bearbeiten</button>
     </div>
   `;
 }
 
-function renderEffortForm(discipline) {
-  const isPending = state.pendingEffortIds.has(discipline.id);
-  const input = renderEffortInput(discipline);
+function renderEffortEditPanel(effort, discipline) {
   return `
-    <form class="effort-form" autocomplete="off">
+    <div class="effort-edit-panel">
+      ${renderEffortForm(discipline, effort)}
+    </div>
+  `;
+}
+
+function renderEffortForm(discipline, effort = null) {
+  const formKey = effort ? editEffortDraftKey(effort.id) : newEffortDraftKey(discipline.id);
+  const isPending = state.pendingEffortIds.has(formKey);
+  const isDeleting = effort ? state.pendingEffortIds.has(deleteEffortPendingKey(effort.id)) : false;
+  const draft = state.effortDrafts.get(formKey) ?? (effort ? effortDraftFromEffort(effort, discipline) : {});
+  const input = renderEffortInput(discipline, draft);
+  const shareChecked = draft.share;
+  const editActionCount = effort?.beitrag_id ? 4 : 3;
+  return `
+    <form class="effort-form" autocomplete="off" data-form-key="${escapeHtml(formKey)}" ${effort ? `data-edit-effort-id="${escapeHtml(effort.id)}"` : ""}>
       ${input}
-      <label class="share-toggle"><input type="checkbox" name="share" data-share-toggle> Im Feed teilen</label>
-      <div data-share-fields hidden>
-        <label>Beitragstext<textarea name="text" rows="3" maxlength="240" placeholder="Optionaler Text zu deiner Leistung"></textarea></label>
-        <div class="image-placeholder">Bild hinzufuegen - kommt spaeter</div>
+      <label>Datum<input name="performedDate" type="date" required value="${escapeHtml(draft.performedDate ?? todayInputValue())}"></label>
+      <label class="share-toggle"><input type="checkbox" name="share" data-share-toggle ${shareChecked ? "checked" : ""}> Im Feed teilen</label>
+      <div data-share-fields ${shareChecked ? "" : "hidden"}>
+        <label>Beitragstext<textarea name="text" rows="3" maxlength="240" placeholder="Optionaler Text zu deiner Leistung">${escapeHtml(draft.text ?? "")}</textarea></label>
       </div>
-      <div class="form-actions">
-        <button class="accept-button" type="submit" data-effort-submit ${isPending ? "disabled" : ""}>Leistung speichern</button>
-        <button class="ghost-button" type="button" data-discipline-action="hide-form">Abbrechen</button>
+      <div class="form-actions${effort ? " edit-actions" : ""}" ${effort ? `style="--edit-action-count: ${editActionCount}"` : ""}>
+        <button class="accept-button" type="submit" data-effort-submit ${isPending ? "disabled" : ""}>${effort ? "Ändern" : "Leistung speichern"}</button>
+        <button class="ghost-button" type="button" ${effort ? `data-effort-action="cancel-edit" data-effort-id="${escapeHtml(effort.id)}"` : 'data-discipline-action="hide-form"'}>Abbrechen</button>
+        ${effort?.beitrag_id ? `<button class="decline-button" type="button" data-effort-action="delete-post" data-effort-id="${escapeHtml(effort.id)}" data-post-id="${escapeHtml(effort.beitrag_id)}" ${state.pendingPostIds.has(effort.beitrag_id) ? "disabled" : ""}>Beitrag löschen</button>` : ""}
+        ${effort ? `<button class="decline-button" type="button" data-effort-action="delete-effort" data-effort-id="${escapeHtml(effort.id)}" ${isDeleting ? "disabled" : ""}>Leistung löschen</button>` : ""}
       </div>
     </form>
   `;
 }
 
-function renderEffortInput(discipline) {
+function renderEffortInput(discipline, draft = {}) {
   if (discipline.name === "Distanzwurf") {
     return `
       <label>Stufe
         <select name="stage" required>
           <option value="">Stufe waehlen</option>
-          <option value="1">Dreierlinie</option>
-          <option value="2">Mittelkreis</option>
-          <option value="3">Mittellinie</option>
+          <option value="1" ${draft.stage === "1" ? "selected" : ""}>Dreierlinie</option>
+          <option value="2" ${draft.stage === "2" ? "selected" : ""}>Mittelkreis</option>
+          <option value="3" ${draft.stage === "3" ? "selected" : ""}>Mittellinie</option>
         </select>
       </label>
     `;
@@ -927,13 +1142,13 @@ function renderEffortInput(discipline) {
   if (discipline.einheit === "Sekunden") {
     return `
       <div class="time-inputs">
-        <label>Minuten<input name="minutes" type="number" min="0" step="1" inputmode="numeric"></label>
-        <label>Sekunden<input name="seconds" type="number" min="0" step="0.1" inputmode="decimal"></label>
+        <label>Minuten<input name="minutes" type="number" min="0" step="1" inputmode="numeric" value="${escapeHtml(draft.minutes ?? "")}"></label>
+        <label>Sekunden<input name="seconds" type="number" min="0" step="0.1" inputmode="decimal" value="${escapeHtml(draft.seconds ?? "")}"></label>
       </div>
     `;
   }
   const step = discipline.nachkommastellen > 0 ? String(1 / (10 ** discipline.nachkommastellen)) : "1";
-  return `<label>${escapeHtml(discipline.einheit)}<input name="value" type="number" min="0" step="${step}" required inputmode="${discipline.nachkommastellen > 0 ? "decimal" : "numeric"}"></label>`;
+  return `<label>${escapeHtml(discipline.einheit)}<input name="value" type="number" min="0" step="${step}" required inputmode="${discipline.nachkommastellen > 0 ? "decimal" : "numeric"}" value="${escapeHtml(draft.value ?? "")}"></label>`;
 }
 
 function handleDisciplineAction(disciplineId, action) {
@@ -943,8 +1158,10 @@ function handleDisciplineAction(disciplineId, action) {
       return;
     }
     state.activeEntryDisciplineId = disciplineId;
+    state.activeEditEffortId = "";
   } else if (action === "hide-form") {
     state.activeEntryDisciplineId = "";
+    state.effortDrafts.delete(newEffortDraftKey(disciplineId));
   } else if (action === "more-efforts") {
     const discipline = state.disciplines.find((item) => item.id === disciplineId);
     const count = sortedEfforts(discipline).length;
@@ -955,11 +1172,78 @@ function handleDisciplineAction(disciplineId, action) {
   renderDex();
 }
 
+function handleEffortAction(discipline, action, effortId) {
+  const effort = (state.effortByDiscipline.get(discipline.id) ?? []).find((item) => item.id === effortId);
+  if (action === "edit" && effort) {
+    state.activeEntryDisciplineId = "";
+    state.activeEditEffortId = effort.id;
+    state.effortDrafts.set(editEffortDraftKey(effort.id), effortDraftFromEffort(effort, discipline));
+  } else if (action === "cancel-edit") {
+    state.activeEditEffortId = "";
+    state.effortDrafts.delete(editEffortDraftKey(effortId));
+  } else if (action === "delete-post" && effort?.beitrag_id) {
+    void deleteContributionPost(effort.beitrag_id);
+    return;
+  } else if (action === "delete-effort" && effort) {
+    void deleteEffort(effort, discipline);
+    return;
+  }
+  renderDex();
+}
+
+function newEffortDraftKey(disciplineId) {
+  return `new:${disciplineId}`;
+}
+
+function editEffortDraftKey(effortId) {
+  return `edit:${effortId}`;
+}
+
+function deleteEffortPendingKey(effortId) {
+  return `delete:${effortId}`;
+}
+
+function effortDraftFromEffort(effort, discipline) {
+  const draft = {
+    share: Boolean(effort.beitrag_id),
+    text: effort.beitrag_text ?? "",
+    performedDate: effort.geleistet_am ?? toDateInputValue(effort.erstellt_am)
+  };
+  if (discipline.name === "Distanzwurf") {
+    draft.stage = String(effort.wert ?? "");
+  } else if (discipline.einheit === "Sekunden") {
+    const total = Number(effort.wert) || 0;
+    draft.minutes = String(Math.floor(total / 60));
+    draft.seconds = String(Number((total % 60).toFixed(discipline.nachkommastellen || 1)));
+  } else {
+    draft.value = String(effort.wert ?? "");
+  }
+  return draft;
+}
+
+function saveEffortDraft(form) {
+  if (!form) return;
+  const data = new FormData(form);
+  state.effortDrafts.set(form.dataset.formKey, {
+    value: data.get("value") ?? "",
+    minutes: data.get("minutes") ?? "",
+    seconds: data.get("seconds") ?? "",
+    stage: data.get("stage") ?? "",
+    performedDate: data.get("performedDate") ?? todayInputValue(),
+    share: data.get("share") === "on",
+    text: data.get("text") ?? ""
+  });
+}
+
 async function handleEffortSubmit(event, discipline) {
   event.preventDefault();
-  if (!state.connected || !state.session?.user || state.pendingEffortIds.has(discipline.id)) return;
+  const formElement = event.currentTarget;
+  const editEffortId = formElement.dataset.editEffortId ?? "";
+  const formKey = formElement.dataset.formKey || (editEffortId ? editEffortDraftKey(editEffortId) : newEffortDraftKey(discipline.id));
+  if (!state.connected || !state.session?.user || state.pendingEffortIds.has(formKey)) return;
 
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(formElement);
+  saveEffortDraft(formElement);
   const parsed = parseEffortValue(form, discipline);
   if (parsed.error) {
     state.effortMessages.set(discipline.id, { type: "error", text: parsed.error });
@@ -969,19 +1253,38 @@ async function handleEffortSubmit(event, discipline) {
 
   const previousMedal = disciplineStatus(discipline);
   const previousBest = sortedEfforts(discipline)[0] ?? null;
-  state.pendingEffortIds.add(discipline.id);
+  const previousEffort = editEffortId ? (state.effortByDiscipline.get(discipline.id) ?? []).find((item) => item.id === editEffortId) : null;
+  state.pendingEffortIds.add(formKey);
   state.effortMessages.delete(discipline.id);
   renderDex();
 
   const share = form.get("share") === "on";
-  const { data, error } = await state.supabase.rpc("create_leistung_with_optional_beitrag", {
-    p_disziplin_id: discipline.id,
-    p_wert: parsed.value,
-    p_share: share,
-    p_text: form.get("text") ?? null
-  });
+  const performedDate = parsePerformedDate(form);
+  if (performedDate.error) {
+    state.pendingEffortIds.delete(formKey);
+    state.effortMessages.set(discipline.id, { type: "error", text: performedDate.error });
+    renderDex();
+    return;
+  }
+  const rpcName = editEffortId ? "update_leistung_with_optional_beitrag" : "create_leistung_with_optional_beitrag";
+  const rpcArgs = editEffortId
+    ? {
+      p_leistung_id: editEffortId,
+      p_wert: parsed.value,
+      p_share: share,
+      p_text: form.get("text") ?? null,
+      p_geleistet_am: performedDate.value
+    }
+    : {
+      p_disziplin_id: discipline.id,
+      p_wert: parsed.value,
+      p_share: share,
+      p_text: form.get("text") ?? null,
+      p_geleistet_am: performedDate.value
+    };
+  const { data, error } = await state.supabase.rpc(rpcName, rpcArgs);
 
-  state.pendingEffortIds.delete(discipline.id);
+  state.pendingEffortIds.delete(formKey);
   if (error || !Array.isArray(data) || !data.length) {
     state.effortMessages.set(discipline.id, { type: "error", text: error?.message ?? "Leistung konnte nicht gespeichert werden." });
     renderDex();
@@ -994,16 +1297,26 @@ async function handleEffortSubmit(event, discipline) {
     disziplin_id: saved.disziplin_id,
     wert: saved.wert,
     medaille: saved.medaille,
-    erstellt_am: saved.erstellt_am
+    erstellt_am: saved.erstellt_am,
+    geleistet_am: saved.geleistet_am,
+    beitrag_id: saved.beitrag_id ?? null,
+    beitrag_text: saved.beitrag_text ?? ""
   };
-  const list = state.effortByDiscipline.get(discipline.id) ?? [];
-  list.push(effort);
+  const currentList = state.effortByDiscipline.get(discipline.id) ?? [];
+  const list = editEffortId
+    ? currentList.map((item) => (item.id === editEffortId ? { ...item, ...effort } : item))
+    : [...currentList, effort];
   state.effortByDiscipline.set(discipline.id, list);
-  state.achievements.set(discipline.id, bestMedal(previousMedal, effort.medaille));
+  state.achievements.set(discipline.id, bestMedalForEfforts(list));
   state.activeEntryDisciplineId = "";
-  state.effortMessages.set(discipline.id, { type: "success", text: effortSuccessMessage(effort, discipline, previousMedal, previousBest) });
+  state.activeEditEffortId = "";
+  state.effortDrafts.delete(formKey);
+  state.effortMessages.set(discipline.id, {
+    type: "success",
+    text: editEffortId ? "Leistung wurde aktualisiert." : effortSuccessMessage(effort, discipline, previousMedal, previousBest)
+  });
   await loadProfileAndStats();
-  if (share) await loadFeed(true);
+  if (share || previousEffort?.beitrag_id) await loadFeed(true);
   renderDex();
   renderFeed();
   renderProfile();
@@ -1023,6 +1336,15 @@ function parseEffortValue(form, discipline) {
   }
   const validation = validateEffortValue(value, discipline);
   return validation ? { error: validation } : { value };
+}
+
+function parsePerformedDate(form) {
+  const value = String(form.get("performedDate") ?? "").trim();
+  if (!value) return { error: "Bitte ein Datum eingeben." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { error: "Bitte ein gueltiges Datum eingeben." };
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return { error: "Bitte ein gueltiges Datum eingeben." };
+  return { value };
 }
 
 function validateEffortValue(value, discipline) {
@@ -1116,6 +1438,22 @@ function medalRank(value) {
 function renderSportIcon(category) {
   const color = categoryColors[category] ?? "var(--color-primary)";
   return `<span class="sport-icon" style="--icon-color: ${color}" title="${escapeHtml(category)}" aria-label="${escapeHtml(category)}">${iconFor(category)}</span>`;
+}
+
+function renderDsaIcon() {
+  return `
+    <span class="sport-icon dsa-icon" title="DSA" aria-label="DSA">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 15 8l6.5.9-4.7 4.5 1.1 6.4L12 16.8 6.1 19.8l1.1-6.4L2.5 8.9 9 8l3-6Z"/></svg>
+    </span>
+  `;
+}
+
+function renderWarningIcon(label) {
+  return `
+    <span class="sport-icon warning-icon" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 1.8 20h20.4L12 2Zm1 14h-2v2h2v-2Zm0-7h-2v5h2V9Z"/></svg>
+    </span>
+  `;
 }
 
 function renderConnect() {
@@ -1626,6 +1964,7 @@ function clearPersonalData() {
   state.connectMessageType = "";
   state.expandedDisciplineId = "";
   state.activeEntryDisciplineId = "";
+  state.activeEditEffortId = "";
   state.effortByDiscipline = new Map();
   state.effortVisibleCounts = new Map();
   state.pendingEffortIds = new Set();
@@ -1637,6 +1976,7 @@ function clearPersonalData() {
   state.feedError = "";
   state.feedNeedsRefresh = true;
   state.expandedFeedTextIds = new Set();
+  state.pendingPostIds = new Set();
   updateConnectBadge();
 }
 
@@ -1781,6 +2121,36 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
 }
 
+function formatDateOnly(value) {
+  if (!value) return "";
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-");
+    return `${day}.${month}.${year}`;
+  }
+  return formatDate(value);
+}
+
+function toDateInputValue(value) {
+  if (!value) return todayInputValue();
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return todayInputValue();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function todayInputValue() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function medalSymbol(value) {
   return { bronze: "●", silber: "●", gold: "●" }[value] ?? "●";
 }
@@ -1797,6 +2167,10 @@ function normalizeSearch(value) {
 function bestMedal(a = "keine", b = "keine") {
   const rank = { offen: 0, keine: 1, unbewertet: 1, bronze: 2, silber: 3, gold: 4 };
   return rank[b] > rank[a] ? b : a;
+}
+
+function bestMedalForEfforts(efforts) {
+  return efforts.reduce((best, effort) => bestMedal(best, effort.medaille), "keine");
 }
 
 function medalLabel(value) {
