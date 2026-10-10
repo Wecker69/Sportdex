@@ -143,7 +143,14 @@ textarea:focus-visible {
 }
 
 .dex-search {
+  display: grid;
+  gap: 10px;
   margin-top: 16px;
+}
+
+.filter-grid {
+  display: grid;
+  gap: 8px;
 }
 
 .dex-hero,
@@ -253,6 +260,7 @@ button:disabled {
 .state-box.is-success {
   border-color: var(--color-primary-line);
   color: var(--color-success-soft);
+  animation: success-pulse 460ms ease-out;
 }
 
 .dex-grid {
@@ -269,12 +277,26 @@ button:disabled {
   overflow: hidden;
 }
 
+.discipline-card.is-expanded {
+  overflow: visible;
+}
+
 .discipline-card::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 4px;
   background: var(--category-color, var(--color-primary));
+}
+
+.discipline-toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .card-head {
@@ -357,6 +379,7 @@ button:disabled {
 .medal {
   border: 1px solid var(--color-line);
   color: var(--color-muted);
+  opacity: 0.45;
 }
 
 .medal.bronze {
@@ -370,6 +393,33 @@ button:disabled {
 .medal.gold {
   border-color: color-mix(in srgb, var(--color-gold), transparent 45%);
 }
+
+.medal.is-earned {
+  opacity: 1;
+}
+
+.medal.bronze.is-earned {
+  border-color: var(--color-bronze);
+  background: var(--color-bronze);
+  color: var(--color-bg);
+}
+
+.medal.silver.is-earned {
+  border-color: var(--color-silver);
+  background: var(--color-silver);
+  color: var(--color-bg);
+}
+
+.medal.gold.is-earned {
+  border-color: var(--color-gold);
+  background: var(--color-gold);
+  color: var(--color-bg);
+}
+
+.medal.gold.is-current {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-gold), transparent 55%);
+}
+
 
 .status {
   background: var(--color-soft-panel);
@@ -619,6 +669,147 @@ button:disabled {
   display: grid;
   gap: 10px;
   margin-top: 14px;
+}
+
+.feed-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.discipline-details {
+  display: grid;
+  gap: 12px;
+  max-height: 1200px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--color-line);
+  animation: expand-card 180ms ease-out;
+}
+
+.discipline-details h4 {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+}
+
+.discipline-details p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.requirement-row,
+.best-panel,
+.effort-row,
+.feed-performance {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-soft-panel);
+}
+
+.requirement {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.effort-list {
+  display: grid;
+  gap: 8px;
+}
+
+.effort-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  font-size: 0.82rem;
+}
+
+.effort-row span,
+.effort-row time,
+.best-panel span {
+  color: var(--color-muted);
+}
+
+.effort-form {
+  display: grid;
+  gap: 10px;
+}
+
+.time-inputs,
+.form-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.share-toggle {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-toggle input {
+  width: auto;
+  min-height: auto;
+}
+
+.image-placeholder {
+  padding: 12px;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius);
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.compact-button {
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.feed-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-card);
+}
+
+.feed-body {
+  min-width: 0;
+}
+
+.feed-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feed-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.feed-head time,
+.feed-body p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.feed-body p,
+.feed-performance {
+  margin-top: 8px;
 }
 
 .user-card {
@@ -927,6 +1118,11 @@ button:disabled {
     padding-inline: 22px;
   }
 
+  .filter-grid,
+  .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dex-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -943,6 +1139,34 @@ button:disabled {
 
   .danger-outline-button {
     width: auto;
+  }
+}
+
+@keyframes expand-card {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes success-pulse {
+  0% {
+    transform: scale(0.99);
+    border-color: var(--color-positive);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discipline-details,
+  .state-box.is-success {
+    animation: none;
   }
 }
 

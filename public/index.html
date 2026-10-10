@@ -21,11 +21,27 @@
         <section class="view is-active" id="view-dex" aria-labelledby="dex-title">
           <div class="dex-hero">
             <div>
-              <h2 id="dex-title">Medaillen</h2>
-              <p>36 Disziplinen in 12 Kategorien</p>
+              <h2 id="dex-title">Dein Dex</h2>
+              <p id="dex-summary">36 Disziplinen in 12 Kategorien</p>
               <form class="dex-search" id="dex-filter" autocomplete="off">
                 <label class="sr-only" for="search-input">Suche</label>
                 <input id="search-input" type="search" placeholder="Disziplin suchen">
+                <div class="filter-grid">
+                  <label>Kategorie
+                    <select id="category-filter">
+                      <option value="">Alle Kategorien</option>
+                    </select>
+                  </label>
+                  <label>Status
+                    <select id="status-filter">
+                      <option value="">Alle</option>
+                      <option value="offen">Offen</option>
+                      <option value="bronze">Bronze</option>
+                      <option value="silber">Silber</option>
+                      <option value="gold">Gold</option>
+                    </select>
+                  </label>
+                </div>
               </form>
             </div>
           </div>
@@ -39,22 +55,12 @@
         </section>
 
         <section class="view" id="view-feed" aria-labelledby="feed-title">
-          <div class="empty-panel">
-            <div class="empty-icon" aria-hidden="true">SD</div>
-            <h2 id="feed-title">Feed kommt spaeter</h2>
-            <p>Hier werden kuenftig geteilte Leistungen erscheinen</p>
+          <div class="connect-panel">
+            <h2 id="feed-title">Feed</h2>
           </div>
-          <div class="feed-skeleton" aria-hidden="true">
-            <div>
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <span></span><span></span><span></span>
-            </div>
-          </div>
+          <div class="state-box" id="feed-state" hidden></div>
+          <div class="feed-list" id="feed-list" aria-live="polite"></div>
+          <button class="ghost-button" type="button" id="feed-more" hidden>Mehr laden</button>
         </section>
 
         <section class="view" id="view-search" aria-labelledby="search-title">
