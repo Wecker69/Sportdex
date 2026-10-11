@@ -86,7 +86,8 @@
             <button class="tab-button" type="button" data-connect-follow-tab="following">Gefolgt</button>
           </div>
           <div class="connect-tabs connect-subtabs" role="tablist" aria-label="Aktivitaetsfilter" hidden>
-            <button class="tab-button is-active" type="button" data-connect-activity-tab="received">Andere</button>
+            <button class="tab-button is-active" type="button" data-connect-activity-tab="all">Alle</button>
+            <button class="tab-button" type="button" data-connect-activity-tab="received">Andere</button>
             <button class="tab-button" type="button" data-connect-activity-tab="given">Eigene</button>
           </div>
           <div class="state-box" id="connect-state" hidden></div>
@@ -143,6 +144,13 @@
 
           <form class="form-stack auth-pane" id="edit-form">
             <label>Nutzername<input name="nutzername" type="text" required pattern="[a-z0-9_]{3,24}"></label>
+            <label>Profilart
+              <select name="rank" required>
+                <option value="1">Sportler</option>
+                <option value="2">Gruppe</option>
+                <option value="3">Verein</option>
+              </select>
+            </label>
             <label>Wertungsklasse
               <select name="wertungsklasse" required>
                 <option value="m">m</option>

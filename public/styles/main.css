@@ -115,6 +115,18 @@ textarea:focus-visible {
   color: var(--color-rank-sportler);
 }
 
+.rank-gruppe {
+  color: var(--color-silver);
+}
+
+.rank-verein {
+  color: var(--color-gold);
+}
+
+.rank-admin {
+  color: var(--color-primary);
+}
+
 .sync-pill {
   flex: 0 0 auto;
   max-width: 42vw;
@@ -1026,6 +1038,28 @@ button:disabled {
   animation: like-burst 1100ms ease-out;
 }
 
+.feed-like-burst.is-unlike {
+  color: #7f1023;
+}
+
+.feed-like-burst.is-unlike svg {
+  overflow: visible;
+}
+
+.feed-like-burst.is-unlike.is-animating {
+  animation: unlike-fade 1100ms ease-out;
+}
+
+.feed-like-burst.is-unlike.is-animating .heart-left {
+  animation: heart-left-break 1100ms ease-out;
+  transform-origin: 12px 12px;
+}
+
+.feed-like-burst.is-unlike.is-animating .heart-right {
+  animation: heart-right-break 1100ms ease-out;
+  transform-origin: 12px 12px;
+}
+
 .feed-social {
   display: flex;
   align-items: center;
@@ -1293,9 +1327,9 @@ button:disabled {
 
 .follow-menu button {
   min-height: 40px;
-  border: 1px solid color-mix(in srgb, var(--color-primary), transparent 35%);
-  background: var(--color-primary);
-  color: var(--color-text);
+  border: 1px solid var(--color-line);
+  background: var(--color-action);
+  color: var(--color-muted);
 }
 
 .request-card {
@@ -1377,13 +1411,6 @@ button:disabled {
   border: 1px solid var(--color-line);
   background: transparent;
   color: var(--color-muted);
-}
-
-.decline-button.is-danger,
-.request-actions .decline-button.is-danger {
-  border-color: color-mix(in srgb, var(--color-primary), transparent 35%);
-  background: var(--color-primary);
-  color: var(--color-text);
 }
 
 .danger-button {
@@ -1598,12 +1625,56 @@ button:disabled {
   }
 }
 
+@keyframes unlike-fade {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+  70% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes heart-left-break {
+  0%, 18% {
+    transform: translateX(0) rotate(0deg);
+  }
+  100% {
+    transform: translate(-9px, 8px) rotate(-14deg);
+  }
+}
+
+@keyframes heart-right-break {
+  0%, 18% {
+    transform: translateX(0) rotate(0deg);
+  }
+  100% {
+    transform: translate(9px, 8px) rotate(14deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .discipline-details,
   .state-box.is-success,
   .feed-like-burst.is-animating,
+  .feed-like-burst.is-unlike.is-animating .heart-left,
+  .feed-like-burst.is-unlike.is-animating .heart-right,
   .like-button.is-popping svg {
     animation: none;
+  }
+
+  .feed-like-burst.is-animating {
+    opacity: 0.9;
+    transform: scale(1);
   }
 }
 

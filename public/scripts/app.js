@@ -31,10 +31,12 @@ const state = {
   expandedFeedTextIds: new Set(),
   pendingPostIds: new Set(),
   pendingLikeIds: new Set(),
+  unlikeBurstIds: new Set(),
   feedPullStartY: null,
   feedPullDistance: 0,
   feedWheelPull: 0,
   outgoingFollows: new Map(),
+  outgoingFollowRows: [],
   incomingFollows: new Map(),
   incomingRequests: [],
   openFollowMenuId: "",
@@ -47,7 +49,7 @@ const state = {
   connectMessageType: "",
   connectTab: "follows",
   connectFollowTab: "all",
-  connectActivityTab: "received",
+  connectActivityTab: "all",
   activityReceived: [],
   activityGiven: [],
   activityOffsets: { received: 0, given: 0 },
@@ -452,6 +454,7 @@ async function loadUsers() {
 
 async function loadFollowData() {
   state.outgoingFollows = new Map();
+  state.outgoingFollowRows = [];
   state.incomingFollows = new Map();
   state.incomingRequests = [];
   if (!state.connected || !state.session?.user) {
@@ -464,7 +467,8 @@ async function loadFollowData() {
     state.supabase
       .from("follow")
       .select("follower_id, gefolgter_id, status, erstellt_am")
-      .eq("follower_id", userId),
+      .eq("follower_id", userId)
+      .order("erstellt_am", { ascending: false }),
     state.supabase
       .from("follow")
       .select("follower_id, gefolgter_id, status, erstellt_am")
@@ -481,14 +485,27 @@ async function loadFollowData() {
 
   state.connectMessage = "";
   state.connectMessageType = "";
-  (outgoing ?? []).forEach((follow) => {
+  state.outgoingFollowRows = sortFollowRows(outgoing ?? []);
+  state.outgoingFollowRows.forEach((follow) => {
     state.outgoingFollows.set(follow.gefolgter_id, follow.status);
   });
-  state.incomingRequests = incoming ?? [];
+  state.incomingRequests = sortFollowRows(incoming ?? []);
   state.incomingRequests.forEach((follow) => {
     state.incomingFollows.set(follow.follower_id, follow.status);
   });
   updateConnectBadge();
+}
+
+function sortFollowRows(rows) {
+  return [...rows].sort((a, b) => {
+    const statusDiff = followStatusOrder(a.status) - followStatusOrder(b.status);
+    if (statusDiff) return statusDiff;
+    return new Date(b.erstellt_am ?? 0).getTime() - new Date(a.erstellt_am ?? 0).getTime();
+  });
+}
+
+function followStatusOrder(status) {
+  return status === "angefragt" ? 0 : 1;
 }
 
 async function loadProfileAndStats() {
@@ -752,6 +769,7 @@ function renderFeedCard(post) {
   const likeCount = Number(post.like_count ?? 0);
   const isLikePending = state.pendingLikeIds.has(post.beitrag_id);
   const performedAt = post.geleistet_am ?? post.beitrag_erstellt_am;
+  const isUnlikeBurst = state.unlikeBurstIds.has(post.beitrag_id);
   article.innerHTML = `
     <div class="feed-author">
       <div class="avatar small-avatar">${escapeHtml(initials(post))}</div>
@@ -765,7 +783,7 @@ function renderFeedCard(post) {
       ${disciplineImage
         ? `<img src="${escapeHtml(disciplineImage)}" alt="Disziplinbild zu ${escapeHtml(post.disziplin_name)}" loading="lazy" decoding="async" data-feed-image>`
         : feedImageFallback(discipline)}
-      <span class="feed-like-burst" aria-hidden="true">${heartIcon()}</span>
+      <span class="feed-like-burst${isUnlikeBurst ? " is-unlike" : ""}" aria-hidden="true">${isUnlikeBurst ? brokenHeartIcon() : heartIcon()}</span>
     </div>
     <div class="feed-social">
       <button class="like-button${post.liked_by_me ? " is-liked" : ""}" type="button" data-like-post="${escapeHtml(post.beitrag_id)}" aria-pressed="${post.liked_by_me ? "true" : "false"}" aria-label="${post.liked_by_me ? "Like entfernen" : "Beitrag liken"}" ${isLikePending ? "disabled" : ""}>
@@ -831,6 +849,15 @@ function heartIcon() {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35 10.55 20.03C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>`;
 }
 
+function brokenHeartIcon() {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path class="heart-left" d="M11.1 21.1 9.7 19.82C5 15.55 2 12.65 2 8.55 2 5.42 4.42 3 7.5 3c1.45 0 2.86.57 3.9 1.52L9.65 8.15l2.3 2.1-2.05 3.55 2.1 2.35-.9 4.95Z"/>
+      <path class="heart-right" d="M12.9 21.1 14.3 19.82C19 15.55 22 12.65 22 8.55 22 5.42 19.58 3 16.5 3c-1.45 0-2.86.57-3.9 1.52l-1.05 2.18 2.45 2.25-2.05 3.55 2.1 2.35-1.15 6.25Z"/>
+    </svg>
+  `;
+}
+
 function playLikeBurst(article) {
   const burst = article.querySelector(".feed-like-burst");
   if (!burst) return;
@@ -860,20 +887,27 @@ async function togglePostLike(postId, options = {}) {
   const previousPosts = state.feedPosts.map((post) => ({ ...post }));
   const current = state.feedPosts.find((post) => post.beitrag_id === postId);
   const optimisticLiked = !(current?.liked_by_me ?? false);
+  const shouldShowBurst = options.animate || !optimisticLiked;
   state.pendingLikeIds.add(postId);
+  if (!optimisticLiked) {
+    state.unlikeBurstIds.add(postId);
+  } else {
+    state.unlikeBurstIds.delete(postId);
+  }
   applyLikeState(postId, optimisticLiked, Math.max(0, Number(current?.like_count ?? 0) + (optimisticLiked ? 1 : -1)));
   renderFeed();
-  const animationStartedAt = options.animate ? Date.now() : 0;
-  if (options.animate) {
+  const animationStartedAt = shouldShowBurst ? Date.now() : 0;
+  if (shouldShowBurst) {
     playLikeBurstForPost(postId);
   }
   renderConnect();
 
   const { data, error } = await state.supabase.rpc("toggle_beitrag_like", { p_beitrag_id: postId });
-  if (options.animate) {
+  if (shouldShowBurst) {
     await wait(Math.max(0, likeBurstDurationMs - (Date.now() - animationStartedAt)));
   }
   state.pendingLikeIds.delete(postId);
+  state.unlikeBurstIds.delete(postId);
 
   if (error) {
     state.feedPosts = previousPosts;
@@ -1095,7 +1129,7 @@ function renderUserCard(user) {
         </div>
         ${canShowFollow ? `
           <button class="follow-button ${escapeHtml(followButtonClass(followStatus))}" type="button" data-follow-user="${escapeHtml(user.id)}" ${isPending ? "disabled" : ""}>${escapeHtml(followButtonLabel(followStatus, incomingStatus, isPending))}</button>
-          ${isMenuOpen && followStatus ? `<div class="follow-menu"><button type="button" data-follow-menu-action="${followStatus === "angefragt" ? "withdraw" : "unfollow"}">${followStatus === "angefragt" ? "Anfrage zurueckziehen" : "Entfolgen"}</button></div>` : ""}
+          ${isMenuOpen && followStatus ? `<div class="follow-menu"><button type="button" data-follow-menu-action="${followStatus === "angefragt" ? "withdraw" : "unfollow"}">${followStatus === "angefragt" ? "Stornieren" : "Entfolgen"}</button></div>` : ""}
           ${incomingStatus === "angefragt" ? `
             <div class="incoming-search-actions">
               <button class="accept-button" type="button" data-incoming-action="accept" ${isPending ? "disabled" : ""}>Annehmen</button>
@@ -1688,15 +1722,15 @@ function renderConnect() {
   const openRequests = state.incomingRequests.filter((request) => request.status === "angefragt");
   const followers = state.incomingRequests.filter((request) => request.status === "angenommen");
   const usersById = new Map(state.users.map((user) => [user.id, user]));
-  const following = [...state.outgoingFollows.entries()]
-    .filter(([, status]) => status === "angenommen" || status === "angefragt")
-    .map(([userId, status]) => ({ user: usersById.get(userId) ?? { id: userId, nutzername: "nutzer", rank: 1 }, status }));
+  const following = state.outgoingFollowRows
+    .filter((row) => row.status === "angenommen" || row.status === "angefragt")
+    .map((row) => ({ user: usersById.get(row.gefolgter_id) ?? { id: row.gefolgter_id, nutzername: "nutzer", rank: 1 }, status: row.status, erstellt_am: row.erstellt_am }));
   const cards = connectCardsForTab(state.connectFollowTab, openRequests, followers, following);
 
   if (state.connectMessage) {
     setConnectState(state.connectMessage, state.connectMessageType);
   } else if (!cards.length) {
-    setConnectState(connectEmptyMessage(state.connectTab));
+    setConnectState(connectEmptyMessage(state.connectFollowTab));
   } else {
     hideState(els.connectState);
   }
@@ -1728,43 +1762,60 @@ async function loadActivity(reset = false) {
   if (!state.connected || !state.session?.user || state.activityLoading) return;
   const key = state.connectActivityTab;
   if (reset) {
-    if (key === "received") state.activityReceived = [];
-    if (key === "given") state.activityGiven = [];
-    state.activityOffsets[key] = 0;
-    state.activityHasMore[key] = true;
+    if (key === "all" || key === "received") state.activityReceived = [];
+    if (key === "all" || key === "given") state.activityGiven = [];
+    if (key === "all" || key === "received") {
+      state.activityOffsets.received = 0;
+      state.activityHasMore.received = true;
+    }
+    if (key === "all" || key === "given") {
+      state.activityOffsets.given = 0;
+      state.activityHasMore.given = true;
+    }
     state.activityError = "";
   }
-  if (!state.activityHasMore[key]) {
+  if (key !== "all" && !state.activityHasMore[key]) {
     renderConnect();
     return;
   }
 
   state.activityLoading = true;
   renderConnect();
-  const rpcName = key === "given" ? "own_like_activity" : "received_like_activity";
-  const { data, error } = await state.supabase.rpc(rpcName, {
-    p_limit: 10,
-    p_offset: state.activityOffsets[key]
-  });
+  const results = key === "all"
+    ? await Promise.all([
+      state.supabase.rpc("received_like_activity", { p_limit: 10, p_offset: state.activityOffsets.received }),
+      state.supabase.rpc("own_like_activity", { p_limit: 10, p_offset: state.activityOffsets.given })
+    ])
+    : [await state.supabase.rpc(key === "given" ? "own_like_activity" : "received_like_activity", {
+      p_limit: 10,
+      p_offset: state.activityOffsets[key]
+    })];
   state.activityLoading = false;
 
+  const error = results.find((result) => result.error)?.error;
   if (error) {
     state.activityError = `Aktivitaet konnte nicht geladen werden: ${error.message}`;
     renderConnect();
     return;
   }
 
-  const rows = data ?? [];
-  const target = key === "given" ? state.activityGiven : state.activityReceived;
-  const known = new Set(reset ? [] : target.map(activityKey));
-  const uniqueRows = rows.filter((item) => !known.has(activityKey(item)));
-  if (key === "given") {
-    state.activityGiven = reset ? rows : [...state.activityGiven, ...uniqueRows];
-  } else {
+  if (key === "all" || key === "received") {
+    const rows = results[0].data ?? [];
+    const known = new Set(reset ? [] : state.activityReceived.map(activityKey));
+    const uniqueRows = rows.filter((item) => !known.has(activityKey(item)));
     state.activityReceived = reset ? rows : [...state.activityReceived, ...uniqueRows];
+    state.activityOffsets.received += rows.length;
+    state.activityHasMore.received = rows.length === 10;
   }
-  state.activityOffsets[key] += rows.length;
-  state.activityHasMore[key] = rows.length === 10;
+  if (key === "all" || key === "given") {
+    const result = key === "all" ? results[1] : results[0];
+    const rows = result.data ?? [];
+    const known = new Set(reset ? [] : state.activityGiven.map(activityKey));
+    const uniqueRows = rows.filter((item) => !known.has(activityKey(item)));
+    state.activityGiven = reset ? rows : [...state.activityGiven, ...uniqueRows];
+    state.activityOffsets.given += rows.length;
+    state.activityHasMore.given = rows.length === 10;
+  }
   state.activityError = "";
   renderConnect();
 }
@@ -1776,7 +1827,7 @@ function renderActivity() {
   } else if (state.activityLoading && !list.length) {
     setConnectState("Aktivitaet wird geladen ...");
   } else if (!list.length) {
-    setConnectState(state.connectActivityTab === "given" ? "Du hast noch keine Beitraege geliked." : "Noch keine Likes auf deine Beitraege.");
+    setConnectState(activityEmptyMessage());
   } else {
     hideState(els.connectState);
   }
@@ -1785,14 +1836,28 @@ function renderActivity() {
   list.forEach((item) => fragment.append(renderActivityCard(item)));
   els.requestList.append(fragment);
   if (els.activityMore) {
-    els.activityMore.hidden = !list.length || !state.activityHasMore[state.connectActivityTab];
+    const hasMore = state.connectActivityTab === "all"
+      ? state.activityHasMore.received || state.activityHasMore.given
+      : state.activityHasMore[state.connectActivityTab];
+    els.activityMore.hidden = !list.length || !hasMore;
     els.activityMore.disabled = state.activityLoading;
     els.activityMore.textContent = state.activityLoading ? "Laedt ..." : "Mehr laden";
   }
 }
 
 function currentActivityList() {
-  return state.connectActivityTab === "given" ? state.activityGiven : state.activityReceived;
+  if (state.connectActivityTab === "given") return state.activityGiven;
+  if (state.connectActivityTab === "received") return state.activityReceived;
+  return [
+    ...state.activityReceived.map((item) => ({ ...item, activity_kind: "received" })),
+    ...state.activityGiven.map((item) => ({ ...item, activity_kind: "given" }))
+  ].sort((a, b) => new Date(b.liked_at ?? 0).getTime() - new Date(a.liked_at ?? 0).getTime());
+}
+
+function activityEmptyMessage() {
+  if (state.connectActivityTab === "given") return "Du hast noch keine Beitraege geliked.";
+  if (state.connectActivityTab === "received") return "Noch keine Likes auf deine Beitraege.";
+  return "Noch keine Like-Aktivitaet.";
 }
 
 function activityKey(item) {
@@ -1800,7 +1865,7 @@ function activityKey(item) {
 }
 
 function renderActivityCard(item) {
-  const isGiven = state.connectActivityTab === "given";
+  const isGiven = (item.activity_kind ?? state.connectActivityTab) === "given";
   const user = {
     id: isGiven ? item.author_id : item.liker_id,
     nutzername: isGiven ? item.author_name : item.liker_name,
@@ -1827,7 +1892,7 @@ function renderActivityCard(item) {
     <span class="request-type">${isGiven ? "Eigener Like" : "Like"}</span>
     ${isGiven ? `
       <div class="request-actions">
-        <button class="decline-button is-danger" type="button" data-activity-unlike="${escapeHtml(item.beitrag_id)}" ${isPending ? "disabled" : ""}>Like zuruecknehmen</button>
+        <button class="decline-button" type="button" data-activity-unlike="${escapeHtml(item.beitrag_id)}" ${isPending ? "disabled" : ""}>Like zuruecknehmen</button>
       </div>
     ` : ""}
   `;
@@ -1902,7 +1967,7 @@ function renderFollowingCard(user, status = "angenommen") {
     <span class="request-type">${isRequested ? "Angefragt" : "Gefolgt"}</span>
     <div class="request-actions">
       <button class="accept-back-button is-secondary" type="button" disabled>${isRequested ? "Angefragt" : "Gefolgt"}</button>
-      <button class="decline-button is-danger" type="button" data-request-action="${isRequested ? "withdraw-outgoing" : "unfollow-outgoing"}" ${isPending ? "disabled" : ""}>${isRequested ? "Anfrage zurueckziehen" : "Entfolgen"}</button>
+      <button class="decline-button" type="button" data-request-action="${isRequested ? "withdraw-outgoing" : "unfollow-outgoing"}" ${isPending ? "disabled" : ""}>${isRequested ? "Stornieren" : "Entfolgen"}</button>
     </div>
   `;
   article.querySelectorAll("[data-request-action]").forEach((button) => {
@@ -2024,9 +2089,11 @@ async function handleProfileSave(event) {
   event.preventDefault();
   if (!state.connected || !state.session?.user) return;
   const form = new FormData(event.currentTarget);
+  const requestedRank = Number(form.get("rank") ?? state.profile?.rank ?? 1);
   const payload = {
     id: state.session.user.id,
     nutzername: String(form.get("nutzername")).toLowerCase(),
+    rank: [1, 2, 3].includes(requestedRank) ? requestedRank : (Number(state.profile?.rank) === 9 ? 9 : 1),
     wertungsklasse: form.get("wertungsklasse"),
     vorname: emptyToNull(form.get("vorname")),
     nachname: emptyToNull(form.get("nachname")),
@@ -2270,8 +2337,8 @@ async function handleRequestAction(requesterId, action) {
 
   state.pendingRequestIds.delete(requesterId);
   if (!error) {
-    updateConnectBadge();
     await loadUsers();
+    await loadFollowData();
     state.feedNeedsRefresh = true;
   }
   renderConnect();
@@ -2307,6 +2374,7 @@ function clearPersonalData() {
   state.profileLoadError = "";
   state.achievements = new Map();
   state.outgoingFollows = new Map();
+  state.outgoingFollowRows = [];
   state.incomingFollows = new Map();
   state.incomingRequests = [];
   state.pendingFollowIds = new Set();
@@ -2333,6 +2401,7 @@ function clearPersonalData() {
   state.expandedFeedTextIds = new Set();
   state.pendingPostIds = new Set();
   state.pendingLikeIds = new Set();
+  state.unlikeBurstIds = new Set();
   state.activityReceived = [];
   state.activityGiven = [];
   state.activityOffsets = { received: 0, given: 0 };
@@ -2386,6 +2455,8 @@ function showAuthPane(tabName) {
 function fillEditForm(profile) {
   const form = els.editForm;
   form.elements.nutzername.value = profile.nutzername ?? "";
+  form.elements.rank.value = ["1", "2", "3"].includes(String(profile.rank)) ? String(profile.rank) : "1";
+  form.elements.rank.disabled = Number(profile.rank) === 9;
   form.elements.wertungsklasse.value = profile.wertungsklasse ?? "m";
   form.elements.vorname.value = profile.vorname ?? "";
   form.elements.nachname.value = profile.nachname ?? "";
@@ -2554,12 +2625,18 @@ function medalLabel(value) {
 
 function rankLabel(value) {
   const rank = Number(value ?? 1);
-  return rank <= 1 ? "Sportler" : `Rank ${rank}`;
+  if (rank === 2) return "Gruppe";
+  if (rank === 3) return "Verein";
+  if (rank === 9) return "Admin";
+  return "Sportler";
 }
 
 function rankClass(value) {
   const rank = Number(value ?? 1);
-  return rank <= 1 ? "rank-sportler" : "";
+  if (rank === 2) return "rank-gruppe";
+  if (rank === 3) return "rank-verein";
+  if (rank === 9) return "rank-admin";
+  return "rank-sportler";
 }
 
 function initials(profile) {
