@@ -126,6 +126,8 @@ const categoryColors = {
   Ausdauer: "var(--color-category-ausdauer)"
 };
 
+const likeBurstDurationMs = 1100;
+
 init();
 
 async function init() {
@@ -763,6 +765,7 @@ function renderFeedCard(post) {
       ${disciplineImage
         ? `<img src="${escapeHtml(disciplineImage)}" alt="Disziplinbild zu ${escapeHtml(post.disziplin_name)}" loading="lazy" decoding="async" data-feed-image>`
         : feedImageFallback(discipline)}
+      <span class="feed-like-burst" aria-hidden="true">${heartIcon()}</span>
     </div>
     <div class="feed-social">
       <button class="like-button${post.liked_by_me ? " is-liked" : ""}" type="button" data-like-post="${escapeHtml(post.beitrag_id)}" aria-pressed="${post.liked_by_me ? "true" : "false"}" aria-label="${post.liked_by_me ? "Like entfernen" : "Beitrag liken"}" ${isLikePending ? "disabled" : ""}>
@@ -793,7 +796,7 @@ function renderFeedCard(post) {
     }
   });
   article.querySelector(".feed-media")?.addEventListener("dblclick", () => {
-    void togglePostLike(post.beitrag_id);
+    void togglePostLike(post.beitrag_id, { animate: true });
   });
   article.querySelector(".feed-media")?.addEventListener("pointerup", (event) => {
     if (event.pointerType === "mouse") return;
@@ -802,10 +805,11 @@ function renderFeedCard(post) {
     const previous = Number(media.dataset.lastTapAt || 0);
     media.dataset.lastTapAt = String(now);
     if (now - previous <= 340) {
-      void togglePostLike(post.beitrag_id);
+      void togglePostLike(post.beitrag_id, { animate: true });
     }
   });
   article.querySelector("[data-like-post]")?.addEventListener("click", (event) => {
+    playLikeButtonAnimation(event.currentTarget);
     void togglePostLike(event.currentTarget.dataset.likePost);
   });
   article.querySelector("[data-feed-text]")?.addEventListener("click", (event) => {
@@ -824,7 +828,27 @@ function renderFeedCard(post) {
 }
 
 function heartIcon() {
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.2-4.4-9.7-8.3C.2 9.4 2.2 5 6.2 5c2.2 0 3.7 1.2 4.8 2.6C12.1 6.2 13.6 5 15.8 5c4 0 6 4.4 3.9 7.7C19.2 16.6 12 21 12 21Z"/></svg>`;
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35 10.55 20.03C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>`;
+}
+
+function playLikeBurst(article) {
+  const burst = article.querySelector(".feed-like-burst");
+  if (!burst) return;
+  burst.classList.remove("is-animating");
+  void burst.offsetWidth;
+  burst.classList.add("is-animating");
+}
+
+function playLikeBurstForPost(postId) {
+  const button = document.querySelector(`[data-like-post="${CSS.escape(postId)}"]`);
+  const article = button?.closest(".feed-card");
+  if (article) playLikeBurst(article);
+}
+
+function playLikeButtonAnimation(button) {
+  button.classList.remove("is-popping");
+  void button.offsetWidth;
+  button.classList.add("is-popping");
 }
 
 function likeCountLabel(count) {
@@ -839,9 +863,16 @@ async function togglePostLike(postId, options = {}) {
   state.pendingLikeIds.add(postId);
   applyLikeState(postId, optimisticLiked, Math.max(0, Number(current?.like_count ?? 0) + (optimisticLiked ? 1 : -1)));
   renderFeed();
+  const animationStartedAt = options.animate ? Date.now() : 0;
+  if (options.animate) {
+    playLikeBurstForPost(postId);
+  }
   renderConnect();
 
   const { data, error } = await state.supabase.rpc("toggle_beitrag_like", { p_beitrag_id: postId });
+  if (options.animate) {
+    await wait(Math.max(0, likeBurstDurationMs - (Date.now() - animationStartedAt)));
+  }
   state.pendingLikeIds.delete(postId);
 
   if (error) {
@@ -878,6 +909,10 @@ function applyLikeState(postId, likedByMe, likeCount) {
       ? { ...post, liked_by_me: likedByMe, like_count: likeCount }
       : post
   ));
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 async function openEffortEditorFromFeed(effortId, disciplineId) {

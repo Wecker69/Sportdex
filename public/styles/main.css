@@ -960,6 +960,7 @@ button:disabled {
 }
 
 .feed-media {
+  position: relative;
   aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
@@ -968,6 +969,7 @@ button:disabled {
     radial-gradient(circle at 35% 20%, color-mix(in srgb, var(--category-color, var(--color-primary)), transparent 72%), transparent 36%),
     linear-gradient(160deg, var(--color-soft-panel), var(--color-input));
   color: var(--color-muted);
+  overflow: hidden;
 }
 
 .feed-media-icon {
@@ -995,6 +997,33 @@ button:disabled {
   height: 100%;
   object-fit: contain;
   background: var(--color-input);
+}
+
+.feed-like-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  color: #fff;
+  transform: scale(0.5);
+  filter: drop-shadow(0 12px 24px rgb(0 0 0 / 0.55));
+}
+
+.feed-like-burst svg {
+  width: 104px;
+  height: 104px;
+  fill: currentColor;
+}
+
+.feed-like-burst path {
+  fill: currentColor;
+}
+
+.feed-like-burst.is-animating {
+  animation: like-burst 1100ms ease-out;
 }
 
 .feed-social {
@@ -1033,6 +1062,10 @@ button:disabled {
 
 .like-button.is-liked svg {
   fill: currentColor;
+}
+
+.like-button.is-popping svg {
+  animation: like-pop 280ms ease-out;
 }
 
 .feed-performance {
@@ -1534,9 +1567,42 @@ button:disabled {
   }
 }
 
+@keyframes like-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.32);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes like-burst {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  18% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  68% {
+    opacity: 0.92;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.24);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .discipline-details,
-  .state-box.is-success {
+  .state-box.is-success,
+  .feed-like-burst.is-animating,
+  .like-button.is-popping svg {
     animation: none;
   }
 }
