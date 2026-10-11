@@ -211,7 +211,7 @@ function bindUi() {
       void ensureActivityLoaded();
     });
   });
-  els.activityMore.addEventListener("click", () => {
+  els.activityMore?.addEventListener("click", () => {
     void loadActivity(false);
   });
 
@@ -1623,7 +1623,7 @@ function renderWarningIcon(label) {
 
 function renderConnect() {
   els.requestList.innerHTML = "";
-  els.activityMore.hidden = true;
+  if (els.activityMore) els.activityMore.hidden = true;
   els.connectTabs.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.connectTab === state.connectTab);
   });
@@ -1749,9 +1749,11 @@ function renderActivity() {
   const fragment = document.createDocumentFragment();
   list.forEach((item) => fragment.append(renderActivityCard(item)));
   els.requestList.append(fragment);
-  els.activityMore.hidden = !list.length || !state.activityHasMore[state.connectActivityTab];
-  els.activityMore.disabled = state.activityLoading;
-  els.activityMore.textContent = state.activityLoading ? "Laedt ..." : "Mehr laden";
+  if (els.activityMore) {
+    els.activityMore.hidden = !list.length || !state.activityHasMore[state.connectActivityTab];
+    els.activityMore.disabled = state.activityLoading;
+    els.activityMore.textContent = state.activityLoading ? "Laedt ..." : "Mehr laden";
+  }
 }
 
 function currentActivityList() {
