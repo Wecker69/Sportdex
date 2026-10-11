@@ -7,6 +7,8 @@ const state = {
   authRestoring: true,
   authSubscription: null,
   profileLoadError: "",
+  profileMessage: "",
+  profileMessageType: "",
   profile: null,
   users: [],
   expandedUserId: null,
@@ -23,9 +25,12 @@ const state = {
   feedHasMore: true,
   feedLoading: false,
   feedError: "",
+  feedMessage: "",
+  feedMessageType: "",
   feedNeedsRefresh: true,
   expandedFeedTextIds: new Set(),
   pendingPostIds: new Set(),
+  pendingLikeIds: new Set(),
   feedPullStartY: null,
   feedPullDistance: 0,
   feedWheelPull: 0,
@@ -40,7 +45,15 @@ const state = {
   followMessageType: "",
   connectMessage: "",
   connectMessageType: "",
-  connectTab: "all",
+  connectTab: "follows",
+  connectFollowTab: "all",
+  connectActivityTab: "received",
+  activityReceived: [],
+  activityGiven: [],
+  activityOffsets: { received: 0, given: 0 },
+  activityHasMore: { received: true, given: true },
+  activityLoading: false,
+  activityError: "",
   disciplines: [],
   achievements: new Map(),
   activeView: "dex",
@@ -76,6 +89,9 @@ const els = {
   requestList: document.querySelector("#request-list"),
   connectBadge: document.querySelector("#connect-badge"),
   connectTabs: document.querySelectorAll("[data-connect-tab]"),
+  connectFollowTabs: document.querySelectorAll("[data-connect-follow-tab]"),
+  connectActivityTabs: document.querySelectorAll("[data-connect-activity-tab]"),
+  activityMore: document.querySelector("#activity-more"),
   authTabs: document.querySelectorAll("[data-auth-tab]"),
   panes: document.querySelectorAll(".auth-pane"),
   profileState: document.querySelector("#profile-state"),
@@ -117,6 +133,7 @@ async function init() {
   setDexState("Disziplinen werden geladen ...");
   await initSupabase();
   await loadSession();
+  handleAuthRedirectStatus();
   await loadDisciplines();
   await loadUsers();
   await loadFollowData();
@@ -175,8 +192,27 @@ function bindUi() {
   els.connectTabs.forEach((button) => {
     button.addEventListener("click", () => {
       state.connectTab = button.dataset.connectTab;
+      if (state.connectTab === "activity") {
+        void ensureActivityLoaded();
+      } else {
+        renderConnect();
+      }
+    });
+  });
+  els.connectFollowTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.connectFollowTab = button.dataset.connectFollowTab;
       renderConnect();
     });
+  });
+  els.connectActivityTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.connectActivityTab = button.dataset.connectActivityTab;
+      void ensureActivityLoaded();
+    });
+  });
+  els.activityMore.addEventListener("click", () => {
+    void loadActivity(false);
   });
 
   els.loginForm.addEventListener("submit", handleLogin);
@@ -298,6 +334,10 @@ function bindAuthStateListener() {
 
 async function handleAuthStateChange(event, session) {
   state.session = session;
+  if (event === "SIGNED_IN" && window.location.hash.includes("access_token")) {
+    state.profileMessage = "E-Mail bestaetigt. Deine Registrierung ist abgeschlossen.";
+    state.profileMessageType = "success";
+  }
   if (event === "SIGNED_OUT") {
     clearPersonalState();
     await loadUsers();
@@ -327,6 +367,35 @@ async function handleAuthStateChange(event, session) {
 function finishAuthRestore() {
   state.authRestoring = false;
   els.profileView.classList.remove("is-auth-restoring");
+}
+
+function handleAuthRedirectStatus() {
+  const params = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const error = params.get("error_description") || hash.get("error_description") || params.get("error") || hash.get("error");
+  if (error) {
+    state.profileMessage = `Der Bestaetigungslink ist ungueltig oder abgelaufen: ${error}`;
+    state.profileMessageType = "error";
+    showAuthPane("login");
+    return;
+  }
+  const hasAuthTokens = hash.has("access_token") || params.has("code");
+  if (hasAuthTokens && state.session?.user) {
+    state.profileMessage = "E-Mail bestaetigt. Du kannst dich jetzt anmelden oder bist bereits angemeldet.";
+    state.profileMessageType = "success";
+    showAuthPane("login");
+  }
+}
+
+function authRedirectUrl() {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  const path = url.pathname;
+  if (!path.endsWith("/") && !path.endsWith(".html")) {
+    url.pathname = `${path.replace(/\/$/, "")}/`;
+  }
+  return url.toString();
 }
 
 async function loadDisciplines() {
@@ -470,6 +539,8 @@ async function loadFeed(reset = false) {
     state.feedOffset = 0;
     state.feedHasMore = true;
     state.feedError = "";
+    state.feedMessage = "";
+    state.feedMessageType = "";
     state.feedNeedsRefresh = false;
   }
   if (!state.connected || !state.session?.user || state.feedLoading || !state.feedHasMore) {
@@ -627,7 +698,11 @@ function renderFeed() {
     return;
   }
 
-  hideState(els.feedState);
+  if (state.feedMessage) {
+    setFeedState(state.feedMessage, state.feedMessageType);
+  } else {
+    hideState(els.feedState);
+  }
   const fragment = document.createDocumentFragment();
   state.feedPosts.forEach((post) => fragment.append(renderFeedCard(post)));
   els.feedList.append(fragment);
@@ -655,7 +730,7 @@ function normalizeEffort(effort) {
 
 function renderFeedCard(post) {
   const article = document.createElement("article");
-  article.className = `feed-card medal-${medalCssClass(post.medaille)}`;
+  article.className = `feed-card medal-${medalCssClass(post.medaille)}${post.liked_by_me ? " is-liked" : ""}`;
   const discipline = state.disciplines.find((item) => item.id === post.disziplin_id) ?? {
     id: post.disziplin_id,
     einheit: post.einheit,
@@ -672,6 +747,9 @@ function renderFeedCard(post) {
   const displayText = isLong && !isExpanded ? `${text.slice(0, 180).trim()}...` : text;
   const disciplineImage = disciplineImageUrl(post.disziplin_id);
   const canEdit = post.autor_id === state.session?.user?.id;
+  const likeCount = Number(post.like_count ?? 0);
+  const isLikePending = state.pendingLikeIds.has(post.beitrag_id);
+  const performedAt = post.geleistet_am ?? post.beitrag_erstellt_am;
   article.innerHTML = `
     <div class="feed-author">
       <div class="avatar small-avatar">${escapeHtml(initials(post))}</div>
@@ -686,10 +764,18 @@ function renderFeedCard(post) {
         ? `<img src="${escapeHtml(disciplineImage)}" alt="Disziplinbild zu ${escapeHtml(post.disziplin_name)}" loading="lazy" decoding="async" data-feed-image>`
         : feedImageFallback(discipline)}
     </div>
+    <div class="feed-social">
+      <button class="like-button${post.liked_by_me ? " is-liked" : ""}" type="button" data-like-post="${escapeHtml(post.beitrag_id)}" aria-pressed="${post.liked_by_me ? "true" : "false"}" aria-label="${post.liked_by_me ? "Like entfernen" : "Beitrag liken"}" ${isLikePending ? "disabled" : ""}>
+        ${heartIcon()}
+        <span>${escapeHtml(likeCountLabel(likeCount))}</span>
+      </button>
+    </div>
     <div class="feed-performance">
-      <span class="feed-discipline">${escapeHtml(post.disziplin_name)}</span>
+      <div class="feed-performance-head">
+        <span class="feed-discipline">${escapeHtml(post.disziplin_name)}</span>
+        <time class="feed-date" datetime="${escapeHtml(performedAt)}">${escapeHtml(formatDateOnly(performedAt))}</time>
+      </div>
       <strong>${escapeHtml(formatFeedEffortValue(post.wert, discipline))}</strong>
-      <time class="feed-date" datetime="${escapeHtml(post.geleistet_am ?? post.beitrag_erstellt_am)}">${escapeHtml(formatDateOnly(post.geleistet_am ?? post.beitrag_erstellt_am))}</time>
       <div class="feed-meta-row">
         <span class="medal feed-medal ${escapeHtml(post.medaille ?? "unbewertet")} is-earned">${escapeHtml(medalSymbol(post.medaille))} ${escapeHtml(medalLabel(post.medaille))}</span>
         ${renderFeedMetaIcons(discipline)}
@@ -706,6 +792,22 @@ function renderFeedCard(post) {
       media.innerHTML = feedImageFallback(discipline, "Bild nicht verfuegbar");
     }
   });
+  article.querySelector(".feed-media")?.addEventListener("dblclick", () => {
+    void togglePostLike(post.beitrag_id);
+  });
+  article.querySelector(".feed-media")?.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "mouse") return;
+    const media = event.currentTarget;
+    const now = Date.now();
+    const previous = Number(media.dataset.lastTapAt || 0);
+    media.dataset.lastTapAt = String(now);
+    if (now - previous <= 340) {
+      void togglePostLike(post.beitrag_id);
+    }
+  });
+  article.querySelector("[data-like-post]")?.addEventListener("click", (event) => {
+    void togglePostLike(event.currentTarget.dataset.likePost);
+  });
   article.querySelector("[data-feed-text]")?.addEventListener("click", (event) => {
     const id = event.currentTarget.dataset.feedText;
     if (state.expandedFeedTextIds.has(id)) {
@@ -719,6 +821,63 @@ function renderFeedCard(post) {
     void openEffortEditorFromFeed(event.currentTarget.dataset.feedEdit, post.disziplin_id);
   });
   return article;
+}
+
+function heartIcon() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.2-4.4-9.7-8.3C.2 9.4 2.2 5 6.2 5c2.2 0 3.7 1.2 4.8 2.6C12.1 6.2 13.6 5 15.8 5c4 0 6 4.4 3.9 7.7C19.2 16.6 12 21 12 21Z"/></svg>`;
+}
+
+function likeCountLabel(count) {
+  return `${count} ${count === 1 ? "Like" : "Likes"}`;
+}
+
+async function togglePostLike(postId, options = {}) {
+  if (!postId || state.pendingLikeIds.has(postId) || !state.connected || !state.session?.user) return;
+  const previousPosts = state.feedPosts.map((post) => ({ ...post }));
+  const current = state.feedPosts.find((post) => post.beitrag_id === postId);
+  const optimisticLiked = !(current?.liked_by_me ?? false);
+  state.pendingLikeIds.add(postId);
+  applyLikeState(postId, optimisticLiked, Math.max(0, Number(current?.like_count ?? 0) + (optimisticLiked ? 1 : -1)));
+  renderFeed();
+  renderConnect();
+
+  const { data, error } = await state.supabase.rpc("toggle_beitrag_like", { p_beitrag_id: postId });
+  state.pendingLikeIds.delete(postId);
+
+  if (error) {
+    state.feedPosts = previousPosts;
+    state.feedMessage = `Like konnte nicht gespeichert werden: ${error.message}`;
+    state.feedMessageType = "error";
+    renderFeed();
+    renderConnect();
+    return;
+  }
+
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (saved) {
+    applyLikeState(postId, Boolean(saved.liked_by_me), Number(saved.like_count ?? 0));
+  }
+  state.feedMessage = "";
+  state.feedMessageType = "";
+  if (options.source === "activity") {
+    state.activityGiven = state.activityGiven.filter((item) => item.beitrag_id !== postId || saved?.liked_by_me);
+    state.activityOffsets.given = Math.max(0, state.activityOffsets.given - 1);
+  } else {
+    state.activityOffsets = { received: 0, given: 0 };
+    state.activityHasMore = { received: true, given: true };
+    state.activityReceived = [];
+    state.activityGiven = [];
+  }
+  renderFeed();
+  renderConnect();
+}
+
+function applyLikeState(postId, likedByMe, likeCount) {
+  state.feedPosts = state.feedPosts.map((post) => (
+    post.beitrag_id === postId
+      ? { ...post, liked_by_me: likedByMe, like_count: likeCount }
+      : post
+  ));
 }
 
 async function openEffortEditorFromFeed(effortId, disciplineId) {
@@ -1464,8 +1623,17 @@ function renderWarningIcon(label) {
 
 function renderConnect() {
   els.requestList.innerHTML = "";
+  els.activityMore.hidden = true;
   els.connectTabs.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.connectTab === state.connectTab);
+  });
+  els.connectFollowTabs.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.connectFollowTab === state.connectFollowTab);
+    button.parentElement.hidden = state.connectTab !== "follows";
+  });
+  els.connectActivityTabs.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.connectActivityTab === state.connectActivityTab);
+    button.parentElement.hidden = state.connectTab !== "activity";
   });
 
   if (!state.connected) {
@@ -1477,13 +1645,18 @@ function renderConnect() {
     return;
   }
 
+  if (state.connectTab === "activity") {
+    renderActivity();
+    return;
+  }
+
   const openRequests = state.incomingRequests.filter((request) => request.status === "angefragt");
   const followers = state.incomingRequests.filter((request) => request.status === "angenommen");
   const usersById = new Map(state.users.map((user) => [user.id, user]));
   const following = [...state.outgoingFollows.entries()]
-    .filter(([, status]) => status === "angenommen")
-    .map(([userId]) => usersById.get(userId) ?? { id: userId, nutzername: "nutzer", rank: 1 });
-  const cards = connectCardsForTab(state.connectTab, openRequests, followers, following);
+    .filter(([, status]) => status === "angenommen" || status === "angefragt")
+    .map(([userId, status]) => ({ user: usersById.get(userId) ?? { id: userId, nutzername: "nutzer", rank: 1 }, status }));
+  const cards = connectCardsForTab(state.connectFollowTab, openRequests, followers, following);
 
   if (state.connectMessage) {
     setConnectState(state.connectMessage, state.connectMessageType);
@@ -1498,7 +1671,7 @@ function renderConnect() {
   const fragment = document.createDocumentFragment();
   cards.forEach((card) => {
     if (card.kind === "following") {
-      fragment.append(renderFollowingCard(card.user));
+      fragment.append(renderFollowingCard(card.user, card.status));
       return;
     }
     const requester = usersById.get(card.request.follower_id) ?? { id: card.request.follower_id, nutzername: "nutzer", rank: 1 };
@@ -1507,12 +1680,132 @@ function renderConnect() {
   els.requestList.append(fragment);
 }
 
+async function ensureActivityLoaded() {
+  const list = currentActivityList();
+  if (!list.length && !state.activityLoading && !state.activityError) {
+    await loadActivity(true);
+  } else {
+    renderConnect();
+  }
+}
+
+async function loadActivity(reset = false) {
+  if (!state.connected || !state.session?.user || state.activityLoading) return;
+  const key = state.connectActivityTab;
+  if (reset) {
+    if (key === "received") state.activityReceived = [];
+    if (key === "given") state.activityGiven = [];
+    state.activityOffsets[key] = 0;
+    state.activityHasMore[key] = true;
+    state.activityError = "";
+  }
+  if (!state.activityHasMore[key]) {
+    renderConnect();
+    return;
+  }
+
+  state.activityLoading = true;
+  renderConnect();
+  const rpcName = key === "given" ? "own_like_activity" : "received_like_activity";
+  const { data, error } = await state.supabase.rpc(rpcName, {
+    p_limit: 10,
+    p_offset: state.activityOffsets[key]
+  });
+  state.activityLoading = false;
+
+  if (error) {
+    state.activityError = `Aktivitaet konnte nicht geladen werden: ${error.message}`;
+    renderConnect();
+    return;
+  }
+
+  const rows = data ?? [];
+  const target = key === "given" ? state.activityGiven : state.activityReceived;
+  const known = new Set(reset ? [] : target.map(activityKey));
+  const uniqueRows = rows.filter((item) => !known.has(activityKey(item)));
+  if (key === "given") {
+    state.activityGiven = reset ? rows : [...state.activityGiven, ...uniqueRows];
+  } else {
+    state.activityReceived = reset ? rows : [...state.activityReceived, ...uniqueRows];
+  }
+  state.activityOffsets[key] += rows.length;
+  state.activityHasMore[key] = rows.length === 10;
+  state.activityError = "";
+  renderConnect();
+}
+
+function renderActivity() {
+  const list = currentActivityList();
+  if (state.activityError) {
+    setConnectState(state.activityError, "error");
+  } else if (state.activityLoading && !list.length) {
+    setConnectState("Aktivitaet wird geladen ...");
+  } else if (!list.length) {
+    setConnectState(state.connectActivityTab === "given" ? "Du hast noch keine Beitraege geliked." : "Noch keine Likes auf deine Beitraege.");
+  } else {
+    hideState(els.connectState);
+  }
+
+  const fragment = document.createDocumentFragment();
+  list.forEach((item) => fragment.append(renderActivityCard(item)));
+  els.requestList.append(fragment);
+  els.activityMore.hidden = !list.length || !state.activityHasMore[state.connectActivityTab];
+  els.activityMore.disabled = state.activityLoading;
+  els.activityMore.textContent = state.activityLoading ? "Laedt ..." : "Mehr laden";
+}
+
+function currentActivityList() {
+  return state.connectActivityTab === "given" ? state.activityGiven : state.activityReceived;
+}
+
+function activityKey(item) {
+  return `${item.beitrag_id}:${item.liker_id ?? item.author_id}:${item.liked_at}`;
+}
+
+function renderActivityCard(item) {
+  const isGiven = state.connectActivityTab === "given";
+  const user = {
+    id: isGiven ? item.author_id : item.liker_id,
+    nutzername: isGiven ? item.author_name : item.liker_name,
+    profilbild: isGiven ? item.author_profilbild : item.liker_profilbild,
+    rank: isGiven ? item.author_rank : item.liker_rank
+  };
+  const discipline = state.disciplines.find((entry) => entry.id === item.disziplin_id) ?? {
+    id: item.disziplin_id,
+    name: item.disziplin_name,
+    einheit: "",
+    nachkommastellen: 0
+  };
+  const isPending = state.pendingLikeIds.has(item.beitrag_id);
+  const article = document.createElement("article");
+  article.className = "request-card activity-card";
+  article.innerHTML = `
+    <div class="avatar small-avatar">${escapeHtml(initials(user))}</div>
+    <div class="request-body">
+      <h3>@${escapeHtml(user.nutzername ?? "nutzer")}</h3>
+      <span class="rank-label ${escapeHtml(rankClass(user.rank))}">${escapeHtml(rankLabel(user.rank))}</span>
+      <p class="activity-copy">${isGiven ? "Du magst" : "Mag deinen Beitrag"}: <strong>${escapeHtml(item.disziplin_name ?? "Beitrag")}</strong></p>
+      <p class="activity-meta">${escapeHtml(formatFeedEffortValue(item.wert, discipline))} · ${escapeHtml(formatDate(item.liked_at))}</p>
+    </div>
+    <span class="request-type">${isGiven ? "Eigener Like" : "Like"}</span>
+    ${isGiven ? `
+      <div class="request-actions">
+        <button class="decline-button is-danger" type="button" data-activity-unlike="${escapeHtml(item.beitrag_id)}" ${isPending ? "disabled" : ""}>Like zuruecknehmen</button>
+      </div>
+    ` : ""}
+  `;
+  article.querySelector("[data-activity-unlike]")?.addEventListener("click", (event) => {
+    void togglePostLike(event.currentTarget.dataset.activityUnlike, { source: "activity" });
+  });
+  return article;
+}
+
 function connectCardsForTab(tab, openRequests, followers, following) {
   const incomingCards = [
     ...openRequests.map((request) => ({ kind: "incoming", request })),
     ...followers.map((request) => ({ kind: "incoming", request }))
   ];
-  const followingCards = following.map((user) => ({ kind: "following", user }));
+  const followingCards = following.map((item) => ({ kind: "following", user: item.user, status: item.status }));
   if (tab === "followers") return incomingCards;
   if (tab === "following") return followingCards;
   return [...incomingCards, ...followingCards];
@@ -1520,7 +1813,7 @@ function connectCardsForTab(tab, openRequests, followers, following) {
 
 function connectEmptyMessage(tab) {
   if (tab === "followers") return "Keine Follower oder offenen Anfragen";
-  if (tab === "following") return "Du folgst noch niemandem";
+  if (tab === "following") return "Du folgst noch niemandem und hast keine offenen Anfragen";
   return "Keine Follower, offenen Anfragen oder gefolgten Profile";
 }
 
@@ -1557,21 +1850,22 @@ function renderRequestCard(request, requester) {
   return article;
 }
 
-function renderFollowingCard(user) {
+function renderFollowingCard(user, status = "angenommen") {
   const article = document.createElement("article");
   article.className = "request-card";
   const userId = user.id;
   const isPending = state.pendingRequestIds.has(userId);
+  const isRequested = status === "angefragt";
   article.innerHTML = `
     <div class="avatar small-avatar">${escapeHtml(initials(user))}</div>
     <div class="request-body">
       <h3>@${escapeHtml(user.nutzername ?? "nutzer")}</h3>
       <span class="rank-label ${escapeHtml(rankClass(user.rank))}">${escapeHtml(rankLabel(user.rank))}</span>
     </div>
-    <span class="request-type">Gefolgt</span>
+    <span class="request-type">${isRequested ? "Angefragt" : "Gefolgt"}</span>
     <div class="request-actions">
-      <button class="accept-back-button is-secondary" type="button" disabled>Gefolgt</button>
-      <button class="decline-button" type="button" data-request-action="unfollow-outgoing" ${isPending ? "disabled" : ""}>Entfolgen</button>
+      <button class="accept-back-button is-secondary" type="button" disabled>${isRequested ? "Angefragt" : "Gefolgt"}</button>
+      <button class="decline-button is-danger" type="button" data-request-action="${isRequested ? "withdraw-outgoing" : "unfollow-outgoing"}" ${isPending ? "disabled" : ""}>${isRequested ? "Anfrage zurueckziehen" : "Entfolgen"}</button>
     </div>
   `;
   article.querySelectorAll("[data-request-action]").forEach((button) => {
@@ -1605,6 +1899,8 @@ function renderProfile() {
     setProfileState("Demo-Modus: Registrierung, Anmeldung und Speichern sind deaktiviert, bis Supabase konfiguriert ist.");
   } else if (state.profileLoadError) {
     setProfileState(state.profileLoadError, "error");
+  } else if (state.profileMessage) {
+    setProfileState(state.profileMessage, state.profileMessageType);
   } else {
     hideState(els.profileState);
   }
@@ -1648,6 +1944,8 @@ async function handleLogin(event) {
   event.preventDefault();
   if (!state.connected) return;
   const form = new FormData(event.currentTarget);
+  state.profileMessage = "";
+  state.profileMessageType = "";
   setProfileState("Anmeldung laeuft ...");
   const { error } = await state.supabase.auth.signInWithPassword({
     email: form.get("email"),
@@ -1663,11 +1961,15 @@ async function handleRegister(event) {
   if (!state.connected) return;
   const form = new FormData(event.currentTarget);
   const nutzername = String(form.get("nutzername")).toLowerCase();
+  const email = String(form.get("email"));
+  state.profileMessage = "";
+  state.profileMessageType = "";
   setProfileState("Registrierung laeuft ...");
   const { error } = await state.supabase.auth.signUp({
-    email: form.get("email"),
+    email,
     password: form.get("password"),
     options: {
+      emailRedirectTo: authRedirectUrl(),
       data: {
         nutzername,
         wertungsklasse: form.get("wertungsklasse")
@@ -1675,7 +1977,10 @@ async function handleRegister(event) {
     }
   });
   if (error) return setProfileState(error.message, "error");
-  setProfileState("Registrierung angelegt. Falls E-Mail-Bestaetigung aktiv ist, bitte Postfach pruefen.", "success");
+  state.profileMessage = `Pruefe dein Postfach unter ${email}. Oeffne den Bestaetigungslink, um deine Registrierung abzuschliessen.`;
+  state.profileMessageType = "success";
+  setProfileState(state.profileMessage, "success");
+  showAuthPane("login");
 }
 
 async function handleProfileSave(event) {
@@ -1691,6 +1996,8 @@ async function handleProfileSave(event) {
     geburtsdatum: emptyToNull(form.get("geburtsdatum")),
     beschreibung: emptyToNull(form.get("beschreibung"))
   };
+  state.profileMessage = "";
+  state.profileMessageType = "";
   setProfileState("Profil wird gespeichert ...");
   const { data, error } = await state.supabase.from("nutzer").upsert(payload).select("*").single();
   if (error) return setProfileState(error.message, "error");
@@ -1951,6 +2258,8 @@ async function handleLogout() {
 
 function clearPersonalState() {
   state.session = null;
+  state.profileMessage = "";
+  state.profileMessageType = "";
   clearPersonalData();
   els.loginForm.reset();
   els.editForm.reset();
@@ -1981,9 +2290,18 @@ function clearPersonalData() {
   state.feedHasMore = true;
   state.feedLoading = false;
   state.feedError = "";
+  state.feedMessage = "";
+  state.feedMessageType = "";
   state.feedNeedsRefresh = true;
   state.expandedFeedTextIds = new Set();
   state.pendingPostIds = new Set();
+  state.pendingLikeIds = new Set();
+  state.activityReceived = [];
+  state.activityGiven = [];
+  state.activityOffsets = { received: 0, given: 0 };
+  state.activityHasMore = { received: true, given: true };
+  state.activityLoading = false;
+  state.activityError = "";
   updateConnectBadge();
 }
 
@@ -1999,7 +2317,11 @@ async function showView(viewName) {
   });
   if (viewName === "connect") {
     await loadFollowData();
-    renderConnect();
+    if (state.connectTab === "activity") {
+      await ensureActivityLoaded();
+    } else {
+      renderConnect();
+    }
   }
   if (viewName === "feed") {
     if (state.feedNeedsRefresh || (!state.feedPosts.length && !state.feedLoading)) {

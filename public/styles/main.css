@@ -352,6 +352,17 @@ button:disabled {
   height: 18px;
 }
 
+.hint-icon-row .dsa-icon {
+  flex-basis: 36px;
+  width: 36px;
+  height: 36px;
+}
+
+.hint-icon-row .dsa-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
 .sport-icon {
   flex: 0 0 36px;
   display: grid;
@@ -629,6 +640,11 @@ button:disabled {
   margin-top: 10px;
 }
 
+.connect-main-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
 .auth-pane {
   display: none;
 }
@@ -829,6 +845,14 @@ button:disabled {
   min-height: auto;
 }
 
+.field-help {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .compact-button {
   min-height: 36px;
   padding: 7px 10px;
@@ -973,10 +997,55 @@ button:disabled {
   background: var(--color-input);
 }
 
+.feed-social {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 12px;
+}
+
+.like-button {
+  width: auto;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-soft-panel);
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.like-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+}
+
+.like-button.is-liked {
+  border-color: color-mix(in srgb, var(--color-primary), transparent 25%);
+  background: color-mix(in srgb, var(--color-primary), transparent 84%);
+  color: var(--color-primary);
+}
+
+.like-button.is-liked svg {
+  fill: currentColor;
+}
+
 .feed-performance {
   margin: 0 12px;
   border-color: var(--medal-line, var(--color-line));
   background: color-mix(in srgb, var(--medal-color, var(--color-text)), transparent 92%);
+}
+
+.feed-performance-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
 }
 
 .feed-discipline,
@@ -984,6 +1053,11 @@ button:disabled {
   color: var(--color-muted);
   font-size: 0.82rem;
   font-weight: 850;
+}
+
+.feed-date {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .feed-performance strong {
@@ -1178,16 +1252,17 @@ button:disabled {
 .follow-menu {
   display: grid;
   gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--color-line);
+  padding: 0;
+  border: 0;
   border-radius: var(--radius);
-  background: var(--color-soft-panel);
+  background: transparent;
 }
 
 .follow-menu button {
-  min-height: 36px;
-  background: var(--color-action);
-  color: var(--color-muted);
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--color-primary), transparent 35%);
+  background: var(--color-primary);
+  color: var(--color-text);
 }
 
 .request-card {
@@ -1271,6 +1346,13 @@ button:disabled {
   color: var(--color-muted);
 }
 
+.decline-button.is-danger,
+.request-actions .decline-button.is-danger {
+  border-color: color-mix(in srgb, var(--color-primary), transparent 35%);
+  background: var(--color-primary);
+  color: var(--color-text);
+}
+
 .danger-button {
   background: var(--color-primary);
   color: var(--color-text);
@@ -1279,6 +1361,23 @@ button:disabled {
 .request-follow-menu {
   grid-column: 1 / -1;
   margin-top: -4px;
+}
+
+.activity-copy,
+.activity-meta {
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.activity-copy strong {
+  color: var(--color-text);
+}
+
+#activity-more {
+  width: min(100%, 640px);
+  margin: 0 auto;
 }
 
 .request-section {
